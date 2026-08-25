@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>手机发图远程 · 配对</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; line-height: 1.5; }
+    h1 { font-size: 22px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand img { width: 36px; height: 36px; border-radius: 9px; }
+    .hint { color: #666; }
+    button { font-size: 16px; padding: 10px 16px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
+    button.secondary { background: #334155; margin-left: 8px; }
+    .url { margin-top: 16px; padding: 12px; border-radius: 10px; background: #0f172a; color: #e2e8f0; word-break: break-all; font-family: ui-monospace, monospace; font-size: 13px; }
+    .qr { margin-top: 16px; }
+    .qr img { width: 220px; height: 220px; border-radius: 12px; background: #fff; padding: 10px; }
+    .ok { color: #16a34a; margin-top: 8px; }
+    .err { color: #dc2626; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1 class="brand"><img src="/mp/logo.svg" alt="" />手机发图远程</h1>
+  <p class="hint">这是独立插件，不影响原来的 /m/ 。在本机打开本页，生成链接后用手机访问。支持文字 + 相册/拍照发图。也可以在桌面 UI 左下角点我们的 logo 直接配对。</p>
+  <p>
+    <button id="mint">生成配对链接</button>
+    <button id="copy" class="secondary" disabled>复制</button>
+  </p>
+  <div id="qr" class="qr" hidden><img id="qr-img" alt="配对二维码" /></div>
+  <div id="url" class="url" hidden></div>
+  <p id="msg"></p>
+  <script>
+    const urlEl = document.getElementById('url')
+    const qrWrap = document.getElementById('qr')
+    const qrImg = document.getElementById('qr-img')
+    const msg = document.getElementById('msg')
+    const copy = document.getElementById('copy')
+    let current = ''
+    document.getElementById('mint').onclick = async () => {
+      msg.textContent = ''
+      try {
+        const res = await fetch('/mp/pair/issue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+        const data = await res.json()
+        if (!data.ok) throw new Error(data.code || 'issue failed')
+        current = data.url
+        urlEl.hidden = false
+        urlEl.textContent = current
+        qrWrap.hidden = false
+        qrImg.src = data.qr
+        copy.disabled = false
+        msg.innerHTML = '手机扫码或打开上面的链接完成配对。有效约 2 小时，一次性。'
+        msg.className = 'ok'
+      } catch (err) {
+        msg.textContent = String(err.message || err)
+        msg.className = 'err'
+      }
+    }
+    copy.onclick = async () => {
+      if (!current) return
+      await navigator.clipboard.writeText(current)
+      msg.textContent = '已复制'
+      msg.className = 'ok'
+    }
+  </script>
+</body>
+</html>
