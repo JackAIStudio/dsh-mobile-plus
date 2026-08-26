@@ -1,6 +1,7 @@
 /**
  * dsh-mobile-plus — browser half (client bundle).
  *
+ * Host-page trigger is icon-only (smartphone + remote-signal outline).
  * The pairing panel is a 1:1 port of `@linxin666/dsh-remote-web-ui`'s
  * `src/client/RemotePanel.tsx` + `src/client/remote.module.css` (the
  * "远程访问" panel shipped by @linxin666/dsh-web-all): same layout, same
@@ -10,8 +11,8 @@
  * "选择二维码指向的网络" picker switches client-side without re-minting.
  *
  * The bundle is a classic script that registers one lazy factory with the
- * client module loader (see @deepseek-ai/dsh-client-modules); the only
- * external it requests is `react`, which the shell seeds statically.
+ * client module loader (see @deepseek-ai/dsh-client-modules); externals are
+ * `react` and `react-dom`, which the shell seeds statically.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-mobile-plus',
@@ -21,6 +22,7 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     var React = require('react')
+    var createPortal = require('react-dom').createPortal
 
     /* CSS: trigger kept from v0.2; panel classes are remote.module.css
        (relevant slice) renamed with the mp- prefix. Tokens only. */
@@ -31,8 +33,7 @@ window.__ModuleLoader__.load({
       '.mp-trigger:active:not(:disabled){background:var(--dsw-alias-interactive-bg-active)}',
       '.mp-trigger:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2),0 0 0 4px var(--dsw-alias-brand-primary)}',
       '.mp-trigger:disabled{opacity:.5;cursor:default}',
-      '.mp-trigger[data-wide="wide"]{flex:1 1 auto;justify-content:flex-start;width:auto;min-width:0;border-radius:999px;gap:8px;padding:0 10px}',
-      '.mp-trigger-label{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.mp-trigger svg{display:block;flex:none}',
       '.mp-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center}',
       '.mp-mask{position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur)}',
       '.mp-panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:14px;width:560px;max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);overflow:auto;box-sizing:border-box;padding:24px;border-radius:24px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}',
@@ -133,21 +134,18 @@ window.__ModuleLoader__.load({
         h('rect', { x: 4, y: 4, width: 8, height: 8, rx: 1.6, fill: 'currentColor' }))
     }
 
-    /** Brand tile: rounded gradient badge with the white glyph (our logo). */
-    function TileLogo({ size = 24 }) {
-      const gid = React.useId()
-      return h('svg', { width: size, height: size, viewBox: '0 0 48 48', 'aria-hidden': 'true', style: { display: 'block', flex: 'none' } },
-        h('defs', null,
-          h('linearGradient', { id: gid, x1: '0', y1: '0', x2: '1', y2: '1' },
-            h('stop', { offset: '0', stopColor: '#3E7BFA' }),
-            h('stop', { offset: '1', stopColor: '#7A5CFF' }))),
-        h('rect', { x: 1, y: 1, width: 46, height: 46, rx: 13, fill: `url(#${gid})` }),
-        h('path', { d: 'M19.2 10.2h9.6a3 3 0 0 1 3 3v21.6a3 3 0 0 1-3 3h-9.6a3 3 0 0 1-3-3v-21.6a3 3 0 0 1 3-3z', fill: 'none', stroke: '#ffffff', strokeWidth: 2.4 }),
-        h('circle', { cx: 27.2, cy: 18.6, r: 1.4, fill: '#ffffff' }),
-        h('path', { d: 'M20.8 27.4l2.3-2.9 1.5 1.8 1.7-2.1 2.4 2.9', fill: 'none', stroke: '#ffffff', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }),
-        h('circle', { cx: 36.6, cy: 11.4, r: 6, fill: '#ffffff' }),
-        h('path', { d: 'M36.6 8.2v6.4M33.4 11.4h6.4', fill: 'none', stroke: '#5B6CF0', strokeWidth: 2.2, strokeLinecap: 'round' })
-      )
+    /**
+     * Host-page trigger: a currentColor outline smartphone + remote signal.
+     * Matches the sidebar's 16px stroke icons so the external GUI only sees
+     * one quiet logo — no Chinese label, no gradient tile.
+     */
+    function RemoteLogo({ size = 18 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
+        h('rect', { x: 3.2, y: 1.55, width: 7.4, height: 12.9, rx: 1.7, stroke: 'currentColor', strokeWidth: 1.3 }),
+        h('path', { d: 'M5.55 3.2h2.7', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round' }),
+        h('path', { d: 'M5.75 12.85h2.3', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round' }),
+        h('path', { d: 'M12.35 5.1c1.4 1.05 1.4 4.75 0 5.8', stroke: 'currentColor', strokeWidth: 1.25, strokeLinecap: 'round' }),
+        h('path', { d: 'M11.3 6.35c.78.7.78 2.6 0 3.3', stroke: 'currentColor', strokeWidth: 1.25, strokeLinecap: 'round' }))
     }
 
     /* ── helpers ported from dsh-remote-web-ui src/client ── */
@@ -357,9 +355,8 @@ window.__ModuleLoader__.load({
         h('p', { className: 'mp-note' }, ['手机端发送的图片会写入工作区的 .dsh-mobile-inbox/，最新一张为 latest.jpg']))
     }
 
-    /** Sidebar foot entry: our logo trigger + the pairing panel. */
-    function MpEntry(props) {
-      const wide = props?.wide === true
+    /** Sidebar foot entry: icon-only remote logo + the pairing panel. */
+    function MpEntry() {
       const [open, setOpen] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
       const [issue, setIssue] = React.useState(null)
@@ -440,45 +437,46 @@ window.__ModuleLoader__.load({
         return () => { window.clearTimeout(timer) }
       }, [issue, expired])
 
+      const overlay = open
+        ? h('div', { className: 'mp-overlay', role: 'presentation' },
+            h('div', { className: 'mp-mask', 'aria-hidden': 'true', onClick: closePanel }),
+            issue
+              ? h(MpPanel, {
+                  issue, publicQr, status, stopped, expired, copied, busy, error,
+                  onClose: closePanel,
+                  onRefresh: mint,
+                  onStop: handleStop,
+                  onCopy: handleCopy,
+                  onPickPublic: () => setPublicQr(true),
+                  onPickLocal: () => setPublicQr(false),
+                  onRevoke: handleRevoke,
+                })
+              : h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机发图远程' },
+                  h('div', { className: 'mp-header' },
+                    h('div', { className: 'mp-heading' },
+                      h('h2', { className: 'mp-title' }, ['手机发图远程']),
+                      h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与图片 · 不影响原 /m/'])),
+                    h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机发图远程面板', onClick: closePanel },
+                      h(IconClose16, { size: 14 }))),
+                  error ? h('p', { className: 'mp-error' }, [error]) : null,
+                  h('div', { className: 'mp-actions' },
+                    h('button', { type: 'button', className: 'mp-action', disabled: busy, onClick: mint },
+                      h(IconRefresh16, { size: 14 }),
+                      [busy ? '生成中…' : '生成配对链接']))))
+        : null
+
       return h('div', { className: 'mp-entry', style: { display: 'contents' } },
         h('button', {
           type: 'button',
           className: 'mp-trigger',
-          'data-wide': wide ? 'wide' : 'rail',
-          'aria-label': '手机发图远程',
+          'aria-label': '手机远程',
           'aria-expanded': open,
-          title: '手机发图远程（配对）',
+          title: '手机远程',
           onClick: openPanel,
-        },
-          wide
-            ? h(React.Fragment, null, h(TileLogo, { size: 18 }), h('span', { className: 'mp-trigger-label' }, ['手机远程']))
-            : h(TileLogo, { size: 18 })),
-        open ? h('div', { className: 'mp-overlay', role: 'presentation' },
-          h('div', { className: 'mp-mask', 'aria-hidden': 'true', onClick: closePanel }),
-          issue
-            ? h(MpPanel, {
-                issue, publicQr, status, stopped, expired, copied, busy, error,
-                onClose: closePanel,
-                onRefresh: mint,
-                onStop: handleStop,
-                onCopy: handleCopy,
-                onPickPublic: () => setPublicQr(true),
-                onPickLocal: () => setPublicQr(false),
-                onRevoke: handleRevoke,
-              })
-            : h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机发图远程' },
-                h('div', { className: 'mp-header' },
-                  h('div', { className: 'mp-heading' },
-                    h('h2', { className: 'mp-title' }, ['手机发图远程']),
-                    h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与图片 · 不影响原 /m/'])),
-                  h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机发图远程面板', onClick: closePanel },
-                    h(IconClose16, { size: 14 }))),
-                error ? h('p', { className: 'mp-error' }, [error]) : null,
-                h('div', { className: 'mp-actions' },
-                  h('button', { type: 'button', className: 'mp-action', disabled: busy, onClick: mint },
-                    h(IconRefresh16, { size: 14 }),
-                    [busy ? '生成中…' : '生成配对链接']))))
-            : null)
+        }, h(RemoteLogo, { size: 18 })),
+        overlay && typeof document !== 'undefined' && document.body && typeof createPortal === 'function'
+          ? createPortal(overlay, document.body)
+          : overlay)
     }
 
     const inject = ['slots']
