@@ -18,6 +18,8 @@ const PREFIX = '/mp'
 const COOKIE = 'mp_device'
 const TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 const IDLE_MS = 7 * 24 * 60 * 60 * 1000
+/** A paired device counts as offline after this long without a touch. */
+const OFFLINE_MS = 90 * 1000
 const MAX_BODY = 12 * 1024 * 1024
 const ALLOW = new Set([
   'workspace.list',
@@ -270,12 +272,67 @@ export function apply(ctx, config = {}) {
     }
     const alive = aliveDevices(devices)
     if (alive.cleaned) persist()
+    const now = Date.now()
+    const rows = Object.entries(devices).map(([id, row]) => ({
+      id,
+      createdAt: row.createdAt,
+      lastSeenAt: row.lastSeenAt,
+      userAgent: row.label,
+      online: now - row.lastSeenAt < OFFLINE_MS,
+    }))
     json(res, 200, {
       ok: true,
       paired: touch(req),
       deviceCount: alive.count,
+      onlineCount: rows.filter((row) => row.online).length,
+      devices: rows,
       publicBaseUrl,
     })
+  }
+
+  /** Stop remote access: drop the active token and every paired device. */
+  const handleStop = (req, res) => {
+    if (req.method !== 'POST') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    if (!isLoopback(req)) {
+      json(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    token = undefined
+    for (const id of Object.keys(devices)) delete devices[id]
+    persist()
+    json(res, 200, { ok: true })
+  }
+
+  /** Revoke one paired device from the desktop panel. */
+  const handleRevoke = async (req, res) => {
+    if (req.method !== 'POST') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    if (!isLoopback(req)) {
+      json(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    let body
+    try {
+      body = await readBody(req, 4096)
+    } catch {
+      json(res, 400, { ok: false, code: 'bad-payload' })
+      return
+    }
+    const id = typeof body.deviceId === 'string' ? body.deviceId : ''
+    if (id === '' || !Object.prototype.hasOwnProperty.call(devices, id)) {
+      json(res, 404, { ok: false, code: 'unknown-device' })
+      return
+    }
+    delete devices[id]
+    persist()
+    json(res, 200, { ok: true })
   }
 
   const wrap = (rpcId, response) => ({
@@ -642,6 +699,8 @@ export function apply(ctx, config = {}) {
       { kind: 'exact', path: `${PREFIX}/pair/issue`, handler: handleIssue },
       { kind: 'exact', path: `${PREFIX}/pair/accept`, handler: handleAccept },
       { kind: 'exact', path: `${PREFIX}/pair/status`, handler: handleStatus },
+      { kind: 'exact', path: `${PREFIX}/pair/stop`, handler: handleStop },
+      { kind: 'exact', path: `${PREFIX}/pair/revoke`, handler: handleRevoke },
       { kind: 'exact', path: `${PREFIX}/api/events.mux`, handler: handleEvents },
       { kind: 'prefix', path: `${PREFIX}/api`, handler: handleApi },
     ]

@@ -2,7 +2,7 @@
 
 独立的 DSH 手机远程插件：文字 + 图片。**不修改** `@linxin666/dsh-web-all` / `dsh-remote-web-ui`。
 
-- **桌面左下角**有我们自己的 **logo 按钮**（手机+图片+加号），点击弹出配对面板（二维码/链接/状态）——参考老插件 `@linxin666/dsh-remote-web-ui` 的 `RemoteEntry` / `FooterRemoteEntry`，但配对走自己的 `/mp/pair/*` 路由
+- **桌面左下角**有我们自己的 **logo 按钮**（手机+图片+加号），点击弹出配对面板——面板 UI **1:1 移植 `@linxin666/dsh-web-all` 的「远程访问」面板**（`dsh-remote-web-ui` 的 `RemotePanel.tsx` + `remote.module.css`：设备配对卡片 + 公网/状态徽章、二维码有效至、手机/电脑配对链接、一次性令牌提示、公网/局域网二维码切换、停止/刷新二维码、已授权设备列表含取消配对），配对走自己的 `/mp/pair/*` 路由
 - **手机页 `/mp/`** 的 UI 是**老插件手机端的 1:1 移植**：同样式（mobileCss 整份拷贝）、同样的「工作区 → 会话 → 聊天」流程、同款 markdown 渲染、深色模式切换、目录浏览器新建工作区——**唯一区别是聊天输入框多了「图片」按钮**（相册/拍照，压缩后随文字一起发送）
 - 本机配对页：http://127.0.0.1:3080/mp/setup
 - 原来的 `/m/` 仍由旧插件提供，两边可并存对比
@@ -18,7 +18,7 @@ dsh plugin --profile web add link:/Users/jkw/Downloads/dshspace/dsh-mobile-plus
 ## 使用
 
 1. 桌面左下角点我们插件的 logo（或在电脑浏览器打开 http://127.0.0.1:3080/mp/setup）
-2. 点「生成配对链接」，面板出现二维码 + 公网/本机链接
+2. 面板自动生成二维码 + 手机/电脑配对链接（「刷新二维码」可重发；「选择二维码指向的网络」可切公网/局域网）
 3. 手机扫码或复制链接打开（可走杭州中转 `http://your-relay-host/mp/...`）
 4. 进入「工作区」，选一个工作区，再选会话（或 `+ 新建会话`）
 5. 聊天输入框上方 chips：**「模型」**（选模型 + 思考强度，老插件 ModelSheet 移植：分组目录、跟随模型默认/各级 effort，`session.selectModel` 提交）、「显示」（工具调用 / 系统消息开关）
@@ -27,8 +27,8 @@ dsh plugin --profile web add link:/Users/jkw/Downloads/dshspace/dsh-mobile-plus
 
 ## 文件
 
-- `index.js` — 主机端：`/mp` 路由、配对 token、设备落盘、图片落地、QR SVG（内嵌 Nayuki qrcodegen，MIT）
-- `client.js` — 浏览器端 bundle：左下角 logo 触发按钮 + 配对面板（`sidebar.footer.action` 槽位）
+- `index.js` — 主机端：`/mp` 路由（`pair/issue|accept|status|stop|revoke`）、配对 token、设备落盘（含在线判定）、图片落地、QR SVG（内嵌 Nayuki qrcodegen，MIT）
+- `client.js` — 浏览器端 bundle：左下角 logo 触发按钮 + 配对面板（`sidebar.footer.action` 槽位；面板为 dsh-web-all 远程访问面板的移植）
 - `public/app.html` + `public/app.js` — 手机页：老插件 `mobile-styles.ts` 样式原样拷贝 + **`messages.ts`（EventFolder 增量折叠 + seq 水位线 + 幂等替换）与 `mux.ts`（SSE 停滞检测 + 自适应轮询回落 + 按会话水位线去重）的 1:1 移植** + 图片功能（唯一扩展：用户消息携带 data-URI 缩略图）
 - `public/setup.html` — 桌面配对页（含二维码）
 - `public/logo.svg`、`qrcodegen.js` — 品牌 logo 与 QR 编码器

@@ -1,67 +1,388 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>手机发图远程 · 配对</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; line-height: 1.5; }
-    h1 { font-size: 22px; }
-    .brand { display: flex; align-items: center; gap: 10px; }
-    .brand img { width: 36px; height: 36px; border-radius: 9px; }
-    .hint { color: #666; }
-    button { font-size: 16px; padding: 10px 16px; border-radius: 10px; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
-    button.secondary { background: #334155; margin-left: 8px; }
-    .url { margin-top: 16px; padding: 12px; border-radius: 10px; background: #0f172a; color: #e2e8f0; word-break: break-all; font-family: ui-monospace, monospace; font-size: 13px; }
-    .qr { margin-top: 16px; }
-    .qr img { width: 220px; height: 220px; border-radius: 12px; background: #fff; padding: 10px; }
-    .ok { color: #16a34a; margin-top: 8px; }
-    .err { color: #dc2626; margin-top: 8px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>手机发图远程 · 配对</title>
+<style>
+  /* Same geometry/copy as the in-app panel (port of dsh-remote-web-ui
+     remote.module.css). Standalone page: the shell's --dsw-alias-* tokens do
+     not exist here, so local fallbacks mirror them (light + dark). */
+  :root {
+    color-scheme: light dark;
+    --bg-base: #ffffff;
+    --bg-layer-1: #ffffff;
+    --bg-layer-2: #ffffff;
+    --bg-page: #f2f2f7;
+    --border-l2: rgba(60, 60, 67, .18);
+    --label-primary: #1d1d1f;
+    --label-secondary: #6e6e73;
+    --label-tertiary: #aeaeb2;
+    --label-caption: #8e8e93;
+    --hover: rgba(120, 120, 128, .12);
+    --brand: #3e7bfa;
+    --success: #34c759;
+    --warn: #ff9500;
+    --error: #ff3b30;
+    --elevated: #ffffff;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .12);
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-base: #1c1c1e;
+      --bg-layer-1: #2c2c2e;
+      --bg-layer-2: #2c2c2e;
+      --bg-page: #000000;
+      --border-l2: rgba(84, 84, 88, .6);
+      --label-primary: #f2f2f7;
+      --label-secondary: #98989d;
+      --label-tertiary: #6e6e73;
+      --label-caption: #8e8e93;
+      --hover: rgba(120, 120, 128, .24);
+      --elevated: #3a3a3c;
+      --shadow: 0 12px 32px rgba(0, 0, 0, .5);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg-page);
+    color: var(--label-primary);
+    font: 14px/22px ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 560px;
+    max-width: 100%;
+    padding: 24px;
+    border-radius: 24px;
+    background: var(--bg-layer-2);
+    box-shadow: var(--shadow);
+    height: fit-content;
+    margin-top: 24px;
+  }
+  .header { display: flex; align-items: flex-start; gap: 12px; }
+  .heading { flex: 1; min-width: 0; }
+  .title { margin: 0; font-size: 18px; font-weight: 600; line-height: 26px; }
+  .subtitle { margin: 4px 0 0; color: var(--label-secondary); font-size: 13px; }
+  .card {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    padding: 16px; border: 1px solid var(--border-l2); border-radius: 16px;
+    background: var(--bg-layer-1);
+  }
+  .card-header { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; }
+  .card-title { font-weight: 500; }
+  .badges { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+  .badge {
+    display: inline-flex; flex: none; align-items: center; gap: 6px; min-width: 0;
+    padding: 2px 10px; border-radius: 999px; font-size: 12px; line-height: 18px; white-space: nowrap;
+  }
+  .badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .badge-waiting { color: var(--label-secondary); background: var(--hover); }
+  .badge-connected { color: var(--success); background: var(--hover); }
+  .badge-disconnected { color: var(--warn); background: var(--hover); }
+  .badge-stopped { color: var(--error); background: var(--hover); }
+  .badge-public { color: var(--brand); background: var(--hover); }
+  .qr-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; border-radius: 12px; background: var(--bg-base); }
+  .qr { display: block; width: 184px; height: 184px; }
+  .expired { margin: 0; color: var(--error); font-size: 13px; }
+  .expiry { margin: 0; color: var(--label-secondary); font-size: 12px; }
+  .hint { margin: 0; color: var(--label-secondary); font-size: 13px; }
+  .pair-links { display: flex; flex-direction: column; gap: 8px; }
+  .pair-link-row {
+    display: flex; align-items: center; gap: 10px; min-width: 0;
+    padding: 10px 12px; border: 1px solid var(--border-l2); border-radius: 10px;
+    background: var(--bg-layer-1);
+  }
+  .pair-link-text { min-width: 0; flex: 1; }
+  .pair-link-label { display: block; margin-bottom: 3px; color: var(--label-secondary); font-size: 12px; }
+  .link {
+    display: block; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--label-caption); font-family: var(--mono); font-size: 12px;
+  }
+  .copy-link, .action {
+    display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 5px;
+    min-height: 30px; padding: 0 10px; border: 1px solid var(--border-l2); border-radius: 8px;
+    background: var(--elevated); color: var(--label-primary); font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  .action { height: 34px; padding: 0 14px; border-radius: 10px; }
+  .copy-link:hover:not(:disabled), .action:hover:not(:disabled) { background: var(--hover); }
+  .copy-link:disabled, .action:disabled { opacity: .5; cursor: default; }
+  .one-time-hint { margin: 0; color: var(--label-caption); font-size: 12px; }
+  .stopped-hint, .error { margin: 0; color: var(--error); font-size: 13px; }
+  .addresses { margin: 12px 0 0; padding: 0; border: none; }
+  .addresses legend { padding: 0; color: var(--label-secondary); font-size: 13px; }
+  .address {
+    display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 4px 6px;
+    border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  .address:hover { background: var(--hover); }
+  .address-value {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--label-secondary); font-size: 12px;
+  }
+  .address-hint, .note { margin: 6px 0 0; color: var(--label-tertiary); font-size: 12px; }
+  .note { margin: 0; line-height: 18px; }
+  .actions { display: flex; gap: 8px; }
+  .devices {
+    display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 14px;
+    border: 1px solid var(--border-l2); border-radius: 16px; background: var(--bg-layer-1);
+  }
+  .devices-title { margin: 0; font-size: 13px; font-weight: 500; line-height: 20px; }
+  .devices-empty { margin: 0; color: var(--label-secondary); font-size: 13px; }
+  .device-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .device-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .device-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .device-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
+  .device-presence { font-size: 12px; line-height: 18px; }
+  .device-online { color: var(--success); }
+  .device-offline { color: var(--label-secondary); }
+  .device-seen { color: var(--label-tertiary); font-size: 12px; }
+  .device-revoke {
+    flex: none; border: none; border-radius: 8px; padding: 6px 10px; background: transparent;
+    color: var(--label-secondary); font-size: 12px; cursor: pointer;
+  }
+  .device-revoke:hover { background: var(--hover); color: var(--label-primary); }
+  [hidden] { display: none !important; }
+</style>
 </head>
 <body>
-  <h1 class="brand"><img src="/mp/logo.svg" alt="" />手机发图远程</h1>
-  <p class="hint">这是独立插件，不影响原来的 /m/ 。在本机打开本页，生成链接后用手机访问。支持文字 + 相册/拍照发图。也可以在桌面 UI 左下角点我们的 logo 直接配对。</p>
-  <p>
-    <button id="mint">生成配对链接</button>
-    <button id="copy" class="secondary" disabled>复制</button>
-  </p>
-  <div id="qr" class="qr" hidden><img id="qr-img" alt="配对二维码" /></div>
-  <div id="url" class="url" hidden></div>
-  <p id="msg"></p>
-  <script>
-    const urlEl = document.getElementById('url')
-    const qrWrap = document.getElementById('qr')
-    const qrImg = document.getElementById('qr-img')
-    const msg = document.getElementById('msg')
-    const copy = document.getElementById('copy')
-    let current = ''
-    document.getElementById('mint').onclick = async () => {
-      msg.textContent = ''
+<div class="panel" role="dialog" aria-label="手机发图远程">
+  <div class="header">
+    <div class="heading">
+      <h2 class="title">手机发图远程</h2>
+      <p class="subtitle">独立插件 · 支持文字与图片 · 不影响原 /m/</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">设备配对</span>
+      <span class="badges">
+        <span id="badge-public" class="badge badge-public">公网</span>
+        <span id="badge-status" class="badge badge-waiting">等待设备连接</span>
+      </span>
+    </div>
+    <div class="qr-wrap"><img id="qr" class="qr" alt="手机扫码配对二维码" /></div>
+    <p id="expiry" class="expiry"></p>
+  </div>
+
+  <p id="hint" class="hint">公网链接：设备无需与本机处于同一网络</p>
+  <div class="pair-links">
+    <div class="pair-link-row">
+      <div class="pair-link-text">
+        <span class="pair-link-label">手机配对链接</span>
+        <code id="url" class="link"></code>
+      </div>
+      <button id="copy-phone" type="button" class="copy-link" disabled>复制手机链接</button>
+    </div>
+    <div class="pair-link-row">
+      <div class="pair-link-text">
+        <span class="pair-link-label">电脑配对链接</span>
+        <code id="local-url" class="link"></code>
+      </div>
+      <button id="copy-desktop" type="button" class="copy-link" disabled>复制电脑链接</button>
+    </div>
+  </div>
+  <p class="one-time-hint">两条链接共用同一枚一次性令牌；任意设备配对成功后，另一条链接立即失效。</p>
+  <p id="stopped-hint" class="stopped-hint" hidden>已停止远程访问。点击"刷新二维码"重新开启。</p>
+
+  <fieldset class="addresses">
+    <legend>选择二维码指向的网络</legend>
+    <label class="address">
+      <input id="net-public" type="radio" name="mp-network" checked />
+      <span>公网地址</span>
+      <code id="public-base" class="address-value"></code>
+    </label>
+    <label class="address">
+      <input id="net-local" type="radio" name="mp-network" />
+      <span>局域网</span>
+      <code id="local-base" class="address-value"></code>
+    </label>
+    <p class="address-hint">远程设备不在同一网络时请使用公网地址；局域网地址仅限同一网络内使用。</p>
+  </fieldset>
+
+  <div class="actions">
+    <button id="stop" type="button" class="action" disabled>停止</button>
+    <button id="refresh" type="button" class="action">刷新二维码</button>
+  </div>
+
+  <section class="devices" aria-label="已授权设备">
+    <h3 class="devices-title">已授权设备</h3>
+    <p id="devices-empty" class="devices-empty">还没有已配对的设备。扫码或打开链接后会出现在这里。</p>
+    <ul id="device-list" class="device-list" hidden></ul>
+  </section>
+
+  <p id="error" class="error" hidden></p>
+  <p class="note">手机端发送的图片会写入工作区的 .dsh-mobile-inbox/，最新一张为 latest.jpg</p>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id)
+  const qrEl = $('qr'), expiryEl = $('expiry'), hintEl = $('hint')
+  const urlEl = $('url'), localUrlEl = $('local-url')
+  const badgePublic = $('badge-public'), badgeStatus = $('badge-status')
+  const stoppedHint = $('stopped-hint'), errorEl = $('error')
+  const copyPhone = $('copy-phone'), copyDesktop = $('copy-desktop')
+  const stopBtn = $('stop'), refreshBtn = $('refresh')
+  const netPublic = $('net-public'), netLocal = $('net-local')
+  const publicBase = $('public-base'), localBase = $('local-base')
+  const devicesEmpty = $('devices-empty'), deviceList = $('device-list')
+
+  let issue = null
+  let stopped = false
+
+  const formatClock = (ms) => {
+    const d = new Date(ms)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  const formatLastSeen = (ms) => {
+    const d = new Date(ms)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${formatClock(ms)}`
+  }
+  const deviceName = (ua) => {
+    if (!ua || !String(ua).trim()) return undefined
+    const os = /Windows NT/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android'
+      : /iPhone|iPad|iPod/i.test(ua) ? 'iOS' : /Macintosh|Mac OS X/i.test(ua) ? 'macOS'
+      : /Linux/i.test(ua) ? 'Linux' : undefined
+    const br = /Edg(?:A|iOS)?\//i.test(ua) ? 'Edge' : /(?:OPR|Opera)\//i.test(ua) ? 'Opera'
+      : /(?:Chrome|CriOS)\//i.test(ua) ? 'Chrome' : /(?:Firefox|FxiOS)\//i.test(ua) ? 'Firefox'
+      : /Safari\//.test(ua) && /Version\//.test(ua) ? 'Safari' : undefined
+    return os && br ? `${os} · ${br}` : os ?? br
+  }
+
+  async function copyText(text, btn, label) {
+    let ok = false
+    try { await navigator.clipboard.writeText(text); ok = true } catch {
       try {
-        const res = await fetch('/mp/pair/issue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-        const data = await res.json()
-        if (!data.ok) throw new Error(data.code || 'issue failed')
-        current = data.url
-        urlEl.hidden = false
-        urlEl.textContent = current
-        qrWrap.hidden = false
-        qrImg.src = data.qr
-        copy.disabled = false
-        msg.innerHTML = '手机扫码或打开上面的链接完成配对。有效约 2 小时，一次性。'
-        msg.className = 'ok'
-      } catch (err) {
-        msg.textContent = String(err.message || err)
-        msg.className = 'err'
+        const ta = document.createElement('textarea')
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta); ta.select()
+        ok = document.execCommand('copy'); ta.remove()
+      } catch { ok = false }
+    }
+    if (!ok) return
+    btn.disabled = true
+    btn.textContent = '已复制'
+    setTimeout(() => { btn.textContent = label; btn.disabled = false }, 1500)
+  }
+
+  function renderQr() {
+    if (!issue) return
+    const publicQr = netPublic.checked
+    badgePublic.hidden = !publicQr
+    qrEl.src = publicQr ? issue.qr : issue.qrLocal
+    hintEl.textContent = publicQr ? '公网链接：设备无需与本机处于同一网络' : '无法扫码？可直接打开下方配对链接'
+    const expired = Date.now() > issue.expiresAt
+    expiryEl.textContent = expired ? '二维码已过期，请刷新' : `二维码有效至 ${formatClock(issue.expiresAt)}`
+    expiryEl.className = expired ? 'expired' : 'expiry'
+  }
+
+  function renderStatus(status) {
+    let text, tone
+    if (stopped) { text = '已停止远程访问'; tone = 'stopped' }
+    else if (status.deviceCount > 0) {
+      if (status.onlineCount > 0) { text = `已连接 ${status.onlineCount} 台设备`; tone = 'connected' }
+      else { text = '已配对设备离线'; tone = 'disconnected' }
+    } else { text = '等待设备连接'; tone = 'waiting' }
+    badgeStatus.textContent = text
+    badgeStatus.className = `badge badge-${tone}`
+
+    devicesEmpty.hidden = status.devices.length > 0
+    deviceList.hidden = status.devices.length === 0
+    deviceList.textContent = ''
+    for (const device of status.devices) {
+      const li = document.createElement('li')
+      li.className = 'device-row'
+      const meta = document.createElement('div')
+      meta.className = 'device-meta'
+      const name = document.createElement('span')
+      name.className = 'device-name'
+      name.textContent = deviceName(device.userAgent) ?? '未知设备'
+      const presence = document.createElement('span')
+      presence.className = `device-presence ${device.online ? 'device-online' : 'device-offline'}`
+      presence.textContent = device.online ? '在线' : '离线'
+      const seen = document.createElement('span')
+      seen.className = 'device-seen'
+      seen.textContent = `最近活动 ${formatLastSeen(device.lastSeenAt)}`
+      meta.append(name, presence, seen)
+      const revoke = document.createElement('button')
+      revoke.type = 'button'
+      revoke.className = 'device-revoke'
+      revoke.setAttribute('aria-label', '取消配对此设备')
+      revoke.textContent = '取消配对'
+      revoke.onclick = async () => {
+        await fetch('/mp/pair/revoke', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deviceId: device.id }) }).catch(() => {})
+        poll()
       }
+      li.append(meta, revoke)
+      deviceList.appendChild(li)
     }
-    copy.onclick = async () => {
-      if (!current) return
-      await navigator.clipboard.writeText(current)
-      msg.textContent = '已复制'
-      msg.className = 'ok'
+  }
+
+  async function mint() {
+    refreshBtn.disabled = true
+    errorEl.hidden = true
+    try {
+      const res = await fetch('/mp/pair/issue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.code || 'issue failed')
+      issue = data
+      stopped = false
+      stoppedHint.hidden = true
+      stopBtn.disabled = false
+      urlEl.textContent = data.url
+      urlEl.title = data.url
+      localUrlEl.textContent = data.localUrl
+      localUrlEl.title = data.localUrl
+      publicBase.textContent = data.publicBaseUrl || ''
+      try { localBase.textContent = new URL(data.localUrl).origin } catch { localBase.textContent = data.localUrl }
+      copyPhone.disabled = false
+      copyDesktop.disabled = false
+      renderQr()
+    } catch (err) {
+      errorEl.textContent = String(err.message || err)
+      errorEl.hidden = false
+    } finally {
+      refreshBtn.disabled = false
     }
-  </script>
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/mp/pair/status')
+      const data = await res.json()
+      renderStatus({
+        deviceCount: typeof data.deviceCount === 'number' ? data.deviceCount : 0,
+        onlineCount: typeof data.onlineCount === 'number' ? data.onlineCount : 0,
+        devices: Array.isArray(data.devices) ? data.devices : [],
+      })
+    } catch { /* retry next tick */ }
+    if (issue) renderQr()
+  }
+
+  netPublic.onchange = renderQr
+  netLocal.onchange = renderQr
+  copyPhone.onclick = () => issue && copyText(issue.url, copyPhone, '复制手机链接')
+  copyDesktop.onclick = () => issue && copyText(issue.localUrl, copyDesktop, '复制电脑链接')
+  refreshBtn.onclick = mint
+  stopBtn.onclick = async () => {
+    await fetch('/mp/pair/stop', { method: 'POST' }).catch(() => {})
+    stopped = true
+    stopBtn.disabled = true
+    stoppedHint.hidden = false
+    poll()
+  }
+
+  mint()
+  poll()
+  setInterval(poll, 3000)
+</script>
 </body>
 </html>
