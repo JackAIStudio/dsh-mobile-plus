@@ -2,11 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="theme-color" content="#f3f5f9" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="手机远程" />
+  <link rel="manifest" href="/mp/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/mp/apple-touch-icon.png" />
   <link rel="icon" type="image/svg+xml" href="/mp/logo.svg" />
   <title>远程访问</title>
   <style>
@@ -24,12 +26,19 @@
   --m-text-tertiary: #8b95a7;
   --m-accent: #2f6fed;
   --m-accent-soft: rgba(47, 111, 237, 0.12);
+  --m-ongoing: #5686fe;
   --m-danger: #d64545;
   --m-success: #1e9e6a;
+  --m-warning: #d48b1a;
   --m-radius: 12px;
   --m-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   --m-shadow-raise: 0 6px 20px rgba(16, 24, 40, 0.1);
   --m-backdrop: rgba(15, 23, 42, 0.4);
+  --m-kb-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html[data-keyboard='1'] {
+  --m-kb-bottom: 0px;
 }
 
 :root[data-theme='dark'] {
@@ -42,8 +51,10 @@
   --m-text-tertiary: #6b747f;
   --m-accent: #4f8cff;
   --m-accent-soft: rgba(79, 140, 255, 0.14);
+  --m-ongoing: #5686fe;
   --m-danger: #e5534b;
   --m-success: #3fb68b;
+  --m-warning: #e2a336;
   --m-radius: 12px;
   --m-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   --m-shadow-raise: 0 6px 20px rgba(0, 0, 0, 0.4);
@@ -58,7 +69,11 @@ html,
 body {
   margin: 0;
   padding: 0;
+  width: 100%;
   height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: var(--m-bg);
   color: var(--m-text);
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', 'Segoe UI', sans-serif;
@@ -67,14 +82,29 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Pin the document so iOS/Android pull-to-refresh cannot grab the viewport.
+   Inner panes (.chat-scroll, .mobile-list, …) are the only scrollers.
+   pinViewport() sets height/width/transform so this box tracks the visual
+   viewport (keyboard open → composer stays glued above the keys). Do not
+   use inset:0 here: bottom:0 fights the JS height on iOS. */
+body {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+}
+
 /* The app fills exactly one viewport: the page itself never scrolls, each
    view owns its scroll region (chat history, session lists) and the chat
    composer stays pinned to the bottom of the screen. */
 #root {
-  height: 100dvh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .mobile {
@@ -173,9 +203,11 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   list-style: none;
   margin: 0;
-  padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 16px);
+  padding: 8px 0 calc(var(--m-kb-bottom) + 16px);
 }
 
 .mobile-row {
@@ -227,11 +259,47 @@ body {
   font-size: 18px;
 }
 
-.mobile-live {
-  margin-left: 6px;
-  color: var(--m-success);
-  font-size: 10px;
-  vertical-align: middle;
+/* Web StateDot: ongoing is the 8-cell chase matrix; warning/done stay as dots. */
+.mobile-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+  flex: none;
+}
+.mobile-status-dot-warning {
+  background: var(--m-warning);
+}
+.mobile-status-dot-done {
+  background: var(--m-success);
+}
+.mobile-status-ongoing {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  color: var(--m-ongoing);
+}
+.mobile-status-matrix {
+  display: block;
+}
+.mobile-status-cell {
+  fill: currentColor;
+  opacity: 0.15;
+  animation: mobile-status-chase 1s ease infinite;
+}
+@keyframes mobile-status-chase {
+  0%, 12.4% { opacity: 1; }
+  12.5%, 24.9% { opacity: 0.6; }
+  25%, 37.4% { opacity: 0.35; }
+  37.5%, 100% { opacity: 0.15; }
+}
+
+.mobile-pwa-hint {
+  margin: 0 16px 8px;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 /* ── empty / error states ────────────────────────────────────────────── */
@@ -362,7 +430,10 @@ body {
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  overflow-anchor: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 14px calc(var(--m-kb-bottom) + 12px);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -695,6 +766,143 @@ body {
   40% { transform: translateY(-4px); opacity: 1; }
 }
 
+/* ── todo / 任务规划 dock (Web TodoPanel) ────────────────────────────── */
+
+.todo-dock {
+  flex: none;
+  margin: 0 12px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-bg-raised);
+  overflow: hidden;
+}
+
+.todo-dock-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.todo-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-dock-lead {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--m-text-tertiary);
+}
+
+.todo-dock-title {
+  flex: none;
+  color: var(--m-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.todo-dock-progress {
+  min-width: 0;
+  flex: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.todo-dock-chevron {
+  flex: none;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+}
+
+.todo-dock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  list-style: none;
+}
+
+.todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.todo-item[data-status='completed'] .todo-content {
+  color: var(--m-text-tertiary);
+}
+
+.todo-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.todo-glyph svg {
+  display: block;
+}
+
+.todo-glyph-completed {
+  color: var(--m-success);
+}
+
+.todo-glyph-pending {
+  color: var(--m-text-tertiary);
+}
+
+.todo-glyph-progress {
+  color: var(--m-accent);
+}
+
+.todo-glyph-progress svg {
+  animation: todo-progress-spin 1s linear infinite;
+}
+
+@keyframes todo-progress-spin {
+  to { transform: rotate(360deg); }
+}
+
+.todo-content {
+  min-width: 0;
+  flex: auto;
+  overflow-wrap: break-word;
+}
+
+.chat-todo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  white-space: normal;
+}
+
 /* ── approval panel (#1025) ──────────────────────────────────────────── */
 
 .chat-approval-panel {
@@ -875,10 +1083,64 @@ body {
 }
 
 
+/* ── slash command / skill menu ──────────────────────────────────────── */
+
+.slash-menu {
+  flex: none;
+  max-height: 36vh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  margin: 0 12px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-bg-raised);
+  box-shadow: var(--m-shadow-raise);
+}
+
+.slash-group {
+  padding: 8px 12px 4px;
+  color: var(--m-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.slash-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.slash-item:active {
+  background: var(--m-accent-soft);
+}
+
+.slash-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.slash-item-desc {
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 /* ── composer toolbar (model / permission chips) ─────────────────────── */
 
 .chat-tools {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   padding: 6px 12px 0;
 }
@@ -955,7 +1217,7 @@ body {
   border-bottom: none;
   border-radius: 16px 16px 0 0;
   box-shadow: var(--m-shadow-raise);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  padding-bottom: calc(var(--m-kb-bottom) + 10px);
   animation: sheet-up 0.22s ease;
 }
 
@@ -991,6 +1253,8 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 0 12px 8px;
 }
 
@@ -1133,7 +1397,7 @@ body {
 .chat-inputbar {
   display: flex;
   gap: 8px;
-  padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px);
+  padding: 10px 12px calc(var(--m-kb-bottom) + 10px);
   border-top: 1px solid var(--m-border);
   background: var(--m-bg);
 }
@@ -1146,6 +1410,7 @@ body {
   /* Grow with the content (still bounded by min/max-height); browsers
      without field-sizing support ignore this line and keep the old size. */
   field-sizing: content;
+  overflow-y: auto;
   padding: 9px 12px;
   border: 1px solid var(--m-border);
   border-radius: 10px;
@@ -1327,9 +1592,14 @@ body {
   .sheet-toggle-switch-knob,
   .chat-input,
   .chat-turn-status,
-  .chat-turn-dots span {
+  .chat-turn-dots span,
+  .todo-glyph-progress svg,
+  .mobile-status-cell {
     animation: none;
     transition: none;
+  }
+  .mobile-status-cell {
+    opacity: 0.55;
   }
   .chat-turn-status {
     background: none;

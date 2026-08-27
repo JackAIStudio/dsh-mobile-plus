@@ -27,7 +27,8 @@ dsh plugin --profile web add github:JackAIStudio/dsh-mobile-plus
 4. 进入「工作区」，选一个工作区，再选会话（或 `+ 新建会话`）
 5. 聊天输入框上方 chips：**「模型」**（选模型 + 思考强度，老插件 ModelSheet 移植：分组目录、跟随模型默认/各级 effort，`session.selectModel` 提交）、「显示」（工具调用 / 系统消息开关）
 6. 聊天输入框：输入文字 + 点「图片」选相册或拍照，发送；输出中可以展开「深度思考」「工具调用」
-7. 手机发来的图片会写入工作区的 `.dsh-mobile-inbox/`，最新一张为 `latest.jpg`，会话消息里带绝对路径以便模型 `read_image`
+7. 会话列表状态点与 Web 侧栏对齐（进行中蓝 / 等待琥珀 / 未读完成绿）；任务规划用完成勾、进行中转圈、待处理虚线圆，直播更新时聊天页不再弹回顶部
+8. 手机发来的图片会写入工作区的 `.dsh-mobile-inbox/`，最新一张为 `latest.jpg`，会话消息里带绝对路径以便模型 `read_image`
 
 ## 文件
 

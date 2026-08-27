@@ -1,0 +1,14 @@
+{
+  "id": "/mp/",
+  "name": "手机远程",
+  "short_name": "手机远程",
+  "start_url": "/mp/",
+  "scope": "/mp/",
+  "display": "standalone",
+  "background_color": "#f3f5f9",
+  "theme_color": "#f3f5f9",
+  "icons": [
+    { "src": "/mp/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/mp/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

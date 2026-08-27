@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { makeQrSvg } from './qrcodegen.js'
 
 export const name = 'dsh-mobile-plus'
-export const inject = ['webServer', 'apiProxy']
+export const inject = ['webServer', 'apiProxy', 'commands', 'agents']
 
 const PREFIX = '/mp'
 const COOKIE = 'mp_device'
@@ -34,6 +34,11 @@ const ALLOW = new Set([
   'session.attachment',
   'session.models',
   'session.selectModel',
+  'skill.list',
+  'command.list',
+  'command.execute',
+  'mobile.pending',
+  'mobile.respond',
 ])
 
 const ROOT = dirname(fileURLToPath(import.meta.url))
@@ -341,6 +346,72 @@ export function apply(ctx, config = {}) {
     result: response.result,
   })
 
+  function muxEnvelope(frame) {
+    if (!frame || typeof frame !== 'object') return null
+    if (frame.type === 'server-request' && frame.payload && typeof frame.payload === 'object') {
+      return { rpcId: typeof frame.rpcId === 'string' ? frame.rpcId : '', payload: frame.payload }
+    }
+    if (typeof frame.type === 'string') {
+      return { rpcId: typeof frame.rpcId === 'string' ? frame.rpcId : '', payload: frame }
+    }
+    return null
+  }
+
+  function createPendingTracker() {
+    const sessions = new Map()
+    const bucket = (sessionId) => {
+      let row = sessions.get(sessionId)
+      if (!row) {
+        row = { approvals: new Map(), questions: new Map() }
+        sessions.set(sessionId, row)
+      }
+      return row
+    }
+    return {
+      onFrame(raw) {
+        const env = muxEnvelope(raw)
+        if (!env) return
+        const payload = env.payload
+        const sessionId = payload.sessionId
+        if (typeof sessionId !== 'string') return
+        if (payload.type === 'approval/requested') {
+          bucket(sessionId).approvals.set(payload.approvalId, {
+            rpcId: env.rpcId,
+            approvalId: payload.approvalId,
+            toolName: payload.toolName,
+            callId: payload.callId,
+            reason: payload.reason,
+          })
+        } else if (payload.type === 'approval/resolved') {
+          sessions.get(sessionId)?.approvals.delete(payload.approvalId)
+        } else if (payload.type === 'question/requested') {
+          bucket(sessionId).questions.set(env.rpcId, {
+            rpcId: env.rpcId,
+            questions: Array.isArray(payload.questions) ? payload.questions : [],
+          })
+        } else if (payload.type === 'question/resolved') {
+          sessions.get(sessionId)?.questions.delete(payload.questionRpcId)
+        }
+      },
+      pending(sessionId) {
+        const row = sessions.get(sessionId)
+        if (!row) return { approvals: [], questions: [] }
+        return {
+          approvals: [...row.approvals.values()],
+          questions: [...row.questions.values()],
+        }
+      },
+      findApproval(sessionId, approvalId) {
+        return sessions.get(sessionId)?.approvals.get(approvalId)
+      },
+      findQuestion(sessionId, rpcId) {
+        return sessions.get(sessionId)?.questions.get(rpcId)
+      },
+    }
+  }
+
+  const pendingTracker = createPendingTracker()
+
   const sessionCwd = async (sessionId) => {
     try {
       const listed = await ctx.apiProxy.sessions.list({ rpcId: `mp-cwd-${Date.now()}`, payload: {} })
@@ -553,6 +624,39 @@ export function apply(ctx, config = {}) {
     return { ...message, content }
   }
 
+  const SESSION_PAGE = 20
+
+  function sessionCursor(row) {
+    return `${row.updatedAt}:${row.sessionId}`
+  }
+
+  function paginateSessions(items, cursor) {
+    const start = cursor
+      ? Math.max(0, items.findIndex((row) => sessionCursor(row) === cursor) + 1)
+      : 0
+    const page = items.slice(start, start + SESSION_PAGE)
+    const last = page[page.length - 1]
+    const nextCursor = last && start + page.length < items.length ? sessionCursor(last) : undefined
+    return { items: page, hasMore: Boolean(nextCursor), nextCursor }
+  }
+
+  /**
+   * 先按工作区裁剪再分页。全局 20 条里属于当前工作区的可能是 0～几条，
+   * 不裁的话手机端会一直显示「加载更多 / 加载中」却加不出一行。
+   */
+  async function sessionsForWorkspace(items, workspaceId) {
+    if (!workspaceId) return items
+    try {
+      const listed = await ctx.apiProxy.workspace.list({ rpcId: `mp-ws-filter-${Date.now()}`, payload: {} })
+      if (!listed.result?.ok) return items
+      const ws = (listed.result.value.items || []).find((row) => row.workspaceId === workspaceId)
+      const owned = new Set(ws?.sessionIds || [])
+      return items.filter((row) => owned.has(row.sessionId))
+    } catch {
+      return items
+    }
+  }
+
   const dispatch = async (method, payload, rpcId, signal) => {
     const api = ctx.apiProxy
     if (method === 'workspace.list') return wrap(rpcId, await api.workspace.list({ rpcId, payload }))
@@ -580,19 +684,89 @@ export function apply(ctx, config = {}) {
     if (method === 'session.attachment') return wrap(rpcId, await api.sessions.attachment({ rpcId, payload }))
     if (method === 'session.models') return wrap(rpcId, await api.sessions.models({ rpcId, payload }))
     if (method === 'session.selectModel') return wrap(rpcId, await api.sessions.selectModel({ rpcId, payload }))
+    if (method === 'mobile.pending') {
+      const sessionId = payload && typeof payload.sessionId === 'string' ? payload.sessionId : ''
+      return { type: 'server-response', rpcId, result: { ok: true, value: pendingTracker.pending(sessionId) } }
+    }
+    if (method === 'mobile.respond') {
+      if (typeof api.respond !== 'function') {
+        return { type: 'server-response', rpcId, result: { ok: false, error: { code: 'unavailable', message: 'respond 不可用' } } }
+      }
+      const sessionId = payload && typeof payload.sessionId === 'string' ? payload.sessionId : ''
+      const kind = payload && payload.type
+      let targetRpcId = typeof payload?.rpcId === 'string' ? payload.rpcId : ''
+      let value
+      if (kind === 'approval') {
+        const approvalId = payload.approvalId
+        const found = pendingTracker.findApproval(sessionId, approvalId)
+        if (found?.rpcId) targetRpcId = found.rpcId
+        value = { sessionId, approvalId, outcome: payload.outcome }
+      } else if (kind === 'question') {
+        const found = pendingTracker.findQuestion(sessionId, targetRpcId)
+        if (!found && pendingTracker.pending(sessionId).questions[0]) {
+          targetRpcId = pendingTracker.pending(sessionId).questions[0].rpcId
+        }
+        value = { sessionId, answer: { answers: Array.isArray(payload.answers) ? payload.answers : [] } }
+      } else {
+        return { type: 'server-response', rpcId, result: { ok: false, error: { code: 'bad-request', message: 'unknown respond type' } } }
+      }
+      if (!targetRpcId) {
+        return { type: 'server-response', rpcId, result: { ok: false, error: { code: 'not-pending', message: '没有待处理的审批或提问' } } }
+      }
+      const receipt = await api.respond({
+        type: 'client-response',
+        rpcId: targetRpcId,
+        result: { ok: true, value },
+      })
+      return wrap(rpcId, { result: { ok: true, value: receipt } })
+    }
+    if (method === 'skill.list') return wrap(rpcId, await api.skills.list({ rpcId, payload }))
+    if (method === 'command.list') {
+      const sessionId = payload && typeof payload.sessionId === 'string' ? payload.sessionId : ''
+      const agent = sessionId && ctx.agents && typeof ctx.agents.get === 'function' ? ctx.agents.get(sessionId) : undefined
+      if (!agent || !ctx.commands || typeof ctx.commands.list !== 'function') {
+        return { type: 'server-response', rpcId, result: { ok: true, value: { items: [] } } }
+      }
+      const items = ctx.commands.list(agent).map((row) => ({
+        name: row.name,
+        description: row.description,
+        hint: row.input && typeof row.input.hint === 'string' ? row.input.hint : undefined,
+      }))
+      return { type: 'server-response', rpcId, result: { ok: true, value: { items } } }
+    }
+    if (method === 'command.execute') {
+      const sessionId = payload && typeof payload.sessionId === 'string' ? payload.sessionId : ''
+      const line = payload && typeof payload.line === 'string' ? payload.line : ''
+      const agent = sessionId && ctx.agents && typeof ctx.agents.get === 'function' ? ctx.agents.get(sessionId) : undefined
+      if (!agent || !ctx.commands || typeof ctx.commands.execute !== 'function') {
+        return {
+          type: 'server-response',
+          rpcId,
+          result: { ok: false, error: { code: 'unavailable', message: '宿主命令服务不可用' } },
+        }
+      }
+      const execution = await ctx.commands.execute(agent, line, [], signal)
+      if (execution === undefined) {
+        return {
+          type: 'server-response',
+          rpcId,
+          result: { ok: false, error: { code: 'unknown-command', message: '未知命令' } },
+        }
+      }
+      return { type: 'server-response', rpcId, result: { ok: true, value: { matched: true, result: execution.result } } }
+    }
     if (method === 'session.list') {
       const full = await api.sessions.list({ rpcId, payload })
       if (!full.result.ok) return wrap(rpcId, full)
-      const items = [...full.result.value.items].sort((a, b) => b.updatedAt - a.updatedAt)
+      const workspaceId = payload && typeof payload.workspaceId === 'string' ? payload.workspaceId : ''
+      const sorted = [...full.result.value.items].sort((a, b) => b.updatedAt - a.updatedAt)
+      const items = await sessionsForWorkspace(sorted, workspaceId)
       const cursor = payload && typeof payload.cursor === 'string' ? payload.cursor : undefined
-      const start = cursor ? Math.max(0, items.findIndex((row) => `${row.updatedAt}:${row.sessionId}` === cursor) + 1) : 0
-      const page = items.slice(start, start + 20)
-      const last = page[page.length - 1]
-      const nextCursor = last && start + page.length < items.length ? `${last.updatedAt}:${last.sessionId}` : undefined
+      const page = paginateSessions(items, cursor)
       return {
         type: 'server-response',
         rpcId,
-        result: { ok: true, value: { items: page, hasMore: Boolean(nextCursor), nextCursor } },
+        result: { ok: true, value: page },
       }
     }
     throw new Error(`unhandled ${method}`)
@@ -679,6 +853,7 @@ export function apply(ctx, config = {}) {
       )
       for await (const frame of frames) {
         if (closed) break
+        pendingTracker.onFrame(frame)
         res.write(`data: ${JSON.stringify(frame)}\n\n`)
       }
     } catch {
@@ -696,6 +871,20 @@ export function apply(ctx, config = {}) {
       { kind: 'exact', path: `${PREFIX}/`, handler: handleApp },
       { kind: 'exact', path: `${PREFIX}/app.js`, handler: handleAppJs },
       { kind: 'exact', path: `${PREFIX}/logo.svg`, handler: readPublic('logo.svg', 'image/svg+xml; charset=utf-8') },
+      { kind: 'exact', path: `${PREFIX}/manifest.webmanifest`, handler: readPublic('manifest.webmanifest', 'application/manifest+json; charset=utf-8') },
+      { kind: 'exact', path: `${PREFIX}/offline.html`, handler: readPublic('offline.html', 'text/html; charset=utf-8') },
+      { kind: 'exact', path: `${PREFIX}/sw.js`, handler: (_req, res) => {
+        const body = readFileSync(join(PUBLIC, 'sw.js'))
+        res.writeHead(200, {
+          'content-type': 'text/javascript; charset=utf-8',
+          'cache-control': 'no-store',
+          'service-worker-allowed': `${PREFIX}/`,
+        })
+        res.end(body)
+      } },
+      { kind: 'exact', path: `${PREFIX}/icon-192.png`, handler: readPublic('icon-192.png', 'image/png') },
+      { kind: 'exact', path: `${PREFIX}/icon-512.png`, handler: readPublic('icon-512.png', 'image/png') },
+      { kind: 'exact', path: `${PREFIX}/apple-touch-icon.png`, handler: readPublic('apple-touch-icon.png', 'image/png') },
       { kind: 'exact', path: `${PREFIX}/pair/issue`, handler: handleIssue },
       { kind: 'exact', path: `${PREFIX}/pair/accept`, handler: handleAccept },
       { kind: 'exact', path: `${PREFIX}/pair/status`, handler: handleStatus },
@@ -707,4 +896,20 @@ export function apply(ctx, config = {}) {
     const stop = routes.map((route) => ctx.webServer.register(route))
     return () => { for (const dispose of stop) dispose() }
   }, 'dsh-mobile-plus: routes')
+
+  ctx.effect(() => {
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const frames = ctx.apiProxy.events.mux(
+          { rpcId: `mp-pending-${Date.now().toString(36)}`, payload: {} },
+          controller.signal,
+        )
+        for await (const frame of frames) pendingTracker.onFrame(frame)
+      } catch {
+        /* aborted or stream ended */
+      }
+    })()
+    return () => controller.abort()
+  }, 'dsh-mobile-plus: pending mux')
 }
