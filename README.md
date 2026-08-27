@@ -10,7 +10,11 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add link:/Users/jkw/Documents/dshspace/dsh-mobile-plus
+# 开发机
+dsh plugin --profile web add link:$HOME/Documents/dshspace/plugins/dsh-mobile-plus
+
+# 新电脑
+dsh plugin --profile web add github:JackAIStudio/dsh-mobile-plus
 ```
 
 然后重启 `dsh web`（客户端组件要进 `__DSH_BOOT__` 图，必须重启）。
