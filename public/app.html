@@ -84,9 +84,11 @@ body {
 
 /* Pin the document so iOS/Android pull-to-refresh cannot grab the viewport.
    Inner panes (.chat-scroll, .mobile-list, …) are the only scrollers.
-   pinViewport() sets height/width/transform so this box tracks the visual
+   pinViewport() sets height/width/top/left so this box tracks the visual
    viewport (keyboard open → composer stays glued above the keys). Do not
-   use inset:0 here: bottom:0 fights the JS height on iOS. */
+   use transform: a transformed ancestor hides the iOS caret and cancels
+   pinyin composition. Do not use inset:0 here: bottom:0 fights the JS
+   height on iOS. */
 body {
   position: fixed;
   top: 0;
@@ -182,11 +184,28 @@ body {
   transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
 }
 
+.mobile-header-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.mobile-header-actions .mobile-theme-toggle {
+  margin-left: 0;
+}
+
 .mobile-theme-toggle {
   margin-left: auto;
   width: 32px;
   border-radius: 50%;
   color: var(--m-text-secondary);
+}
+
+.mobile-today-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .mobile-settings-btn {
@@ -1579,6 +1598,7 @@ body {
   font-size: 14.5px;
   resize: none;
   outline: none;
+  caret-color: var(--m-text);
 }
 
 .chat-input:focus {
@@ -2229,6 +2249,6 @@ body {
 </head>
 <body>
   <div id="root"></div>
-  <script src="/mp/app.js?v=0.2.15"></script>
+  <script src="/mp/app.js?v=0.2.16"></script>
 </body>
 </html>

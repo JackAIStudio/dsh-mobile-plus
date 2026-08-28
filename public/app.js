@@ -260,6 +260,16 @@
   /** Todo-dock list restore — adding a row used to recreate the pane at scrollTop 0. */
   const todoScroll = { top: 0, stick: true }
 
+  /**
+   * Chat composer IME lock. iOS/Android pinyin composition dies if we
+   * detach the <textarea>, assign .value, or setSelectionRange mid-compose:
+   * the caret vanishes and unconfirmed pinyin is committed as Latin ("ni ha").
+   * Keep one textarea node, skip chat patches while composing, flush after.
+   */
+  let composerNode = null
+  let imeComposing = false
+  let composerRenderQueued = false
+
   /* ── DOM helpers ───────────────────────────────────────────────────── */
 
   const rootEl = document.getElementById('root')
@@ -942,14 +952,22 @@
       // revise the layout viewport and retrigger visualViewport resize.
       body.style.height = `${height}px`
       body.style.width = `${width}px`
-      // Glue the fixed page to the visual viewport. A height-only pin
-      // leaves the composer at the top of the layout viewport (or
-      // off-screen) while iOS caret-scrolls offsetTop — the empty gap
-      // + floating overlay the phone remote shows on focus.
-      body.style.transform = `translate(${offsetLeft}px, ${offsetTop}px)`
+      // Glue the fixed page to the visual viewport with top/left — not
+      // transform. A transformed ancestor hides the iOS caret and cancels
+      // IME composition (pinyin committed as Latin). Height-only pin still
+      // leaves the composer at the top of the layout viewport while iOS
+      // caret-scrolls offsetTop.
+      body.style.top = `${offsetTop}px`
+      body.style.left = `${offsetLeft}px`
+      body.style.transform = ''
       if (kbOpen) root.dataset.keyboard = '1'
       else delete root.dataset.keyboard
-      if (window.scrollX || window.scrollY) window.scrollTo(0, 0)
+      // scrollTo while the composer is focused fights iOS caret-scroll and
+      // cancels pinyin composition. The top/left pin already tracks offsetTop.
+      const composerFocused = composerNode && document.activeElement === composerNode
+      if ((window.scrollX || window.scrollY) && !imeComposing && !composerFocused) {
+        window.scrollTo(0, 0)
+      }
     }
 
     const schedule = () => {
@@ -1012,6 +1030,21 @@
       headerIcon(dark
         ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>'
         : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>'),
+    ])
+  }
+
+  /** Workspace-list header: calendar logo only, same 32px circle as theme toggle. */
+  function todayButton() {
+    const busy = state.creating
+    return el('button', {
+      type: 'button',
+      class: 'mobile-theme-toggle mobile-today-btn',
+      disabled: busy,
+      'aria-label': busy ? '正在打开今天的工作区' : '打开今天的工作区',
+      title: '打开今天的工作区',
+      onclick: () => { void openToday() },
+    }, [
+      headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/><rect x="10" y="13" width="4" height="4" rx="0.8" fill="currentColor" stroke="none"/></svg>'),
     ])
   }
 
@@ -2968,7 +3001,7 @@
     const q = ++chatQuery
     state.session = session
     state.view = 'chat'
-    state.draft = ''
+    setDraft('')
     state.images = []
     state.sending = false
     lastMsgScrollKey = null
@@ -3194,12 +3227,19 @@
     })
   }
 
+  function pendingSignature() {
+    const approvals = chat.approvals.map((row) => `${row.rpcId}:${row.busy ? 1 : 0}:${row.error || ''}`).join(',')
+    const questions = chat.questions.map((row) => `${row.rpcId}:${row.busy ? 1 : 0}:${row.error || ''}:${(row.questions || []).length}`).join(',')
+    return `${approvals}#${questions}`
+  }
+
   async function refreshPending() {
     if (!state.session || state.view !== 'chat') return
     try {
       const snapshot = await call('mobile.pending', { sessionId: state.session.sessionId })
+      const before = pendingSignature()
       mergePendingSnapshot(snapshot)
-      if (state.view === 'chat') render()
+      if (state.view === 'chat' && pendingSignature() !== before) render()
     } catch {
       /* polling fallback is best-effort */
     }
@@ -3231,9 +3271,106 @@
   }
 
   function autosizeInput(node) {
-    if (!node) return
+    if (!node || imeComposing) return
     node.style.height = 'auto'
     node.style.height = `${Math.min(node.scrollHeight, 120)}px`
+  }
+
+  function imeLocked(ev) {
+    return imeComposing || Boolean(ev && (ev.isComposing || ev.keyCode === 229))
+  }
+
+  function flushComposerRender() {
+    if (!composerRenderQueued) return
+    composerRenderQueued = false
+    if (state.view === 'chat') render()
+  }
+
+  function syncComposerDraft(node, next, force) {
+    if (!node) return
+    if (!force && imeComposing) return
+    if (node.value === next) return
+    node.value = next
+  }
+
+  function setDraft(next) {
+    state.draft = next == null ? '' : String(next)
+    syncComposerDraft(composerNode, state.draft, true)
+    autosizeInput(composerNode)
+  }
+
+  function onComposerInput(ev) {
+    const node = ev.target
+    if (ev.isComposing || ev.inputType === 'insertCompositionText') imeComposing = true
+    const prev = state.draft
+    state.draft = node.value
+    if (imeLocked(ev)) return
+    autosizeInput(node)
+    if (state.draft.startsWith('/') || prev.startsWith('/')) render()
+  }
+
+  function onComposerKeydown(ev) {
+    if (composerReturnIsNewline()) return
+    if (imeLocked(ev)) return
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      ev.preventDefault()
+      void send()
+    }
+  }
+
+  function ensureComposer() {
+    if (composerNode) return composerNode
+    composerNode = el('textarea', {
+      class: 'chat-input',
+      placeholder: '输入消息，/ 调用命令或技能',
+      enterkeyhint: composerReturnIsNewline() ? 'enter' : 'send',
+      autocomplete: 'off',
+      oninput: onComposerInput,
+      onkeydown: onComposerKeydown,
+    })
+    composerNode.value = state.draft
+    return composerNode
+  }
+
+  function makeSendButton() {
+    return state.running
+      ? el('button', { type: 'button', class: 'chat-send chat-send-stop', disabled: state.sending, onclick: () => void stopTurn() }, ['■'])
+      : el('button', { type: 'button', class: 'chat-send', disabled: state.sending, onclick: () => void send() }, [state.sending ? '发送中…' : '发送'])
+  }
+
+  function buildInputbar() {
+    const file = el('input', {
+      type: 'file',
+      accept: 'image/png,image/jpeg,image/webp,image/gif',
+      multiple: true,
+      onchange: onPickFile,
+    })
+    return el('div', { class: 'chat-inputbar' }, [
+      ensureComposer(),
+      el('label', { class: 'pic-btn' }, ['图片', file]),
+      makeSendButton(),
+    ])
+  }
+
+  function syncInputbar(bar) {
+    if (!bar) return
+    const send = makeSendButton()
+    const oldSend = bar.querySelector('.chat-send')
+    if (
+      !oldSend
+      || oldSend.className !== send.className
+      || oldSend.disabled !== send.disabled
+      || oldSend.textContent !== send.textContent
+    ) {
+      if (oldSend) oldSend.replaceWith(send)
+      else bar.append(send)
+    }
+    syncComposerDraft(ensureComposer(), state.draft, false)
+  }
+
+  function abandonComposerIme() {
+    imeComposing = false
+    composerRenderQueued = false
   }
 
   /**
@@ -3844,15 +3981,15 @@
     if (kind === 'command') {
       const row = chat.slashCommands.find((item) => item.name === name)
       if (row && row.hint) {
-        state.draft = `/${name} `
+        setDraft(`/${name} `)
         render()
         return
       }
-      state.draft = `/${name}`
+      setDraft(`/${name}`)
       void send()
       return
     }
-    state.draft = `/${name} `
+    setDraft(`/${name} `)
     render()
   }
 
@@ -3989,7 +4126,7 @@
     const isCommand = Boolean(parsed && chat.slashCommands.some((row) => row.name === parsed.name) && images.length === 0)
 
     state.error = ''
-    state.draft = ''
+    setDraft('')
     state.images = []
     chatScroll.stick = true
 
@@ -4002,11 +4139,11 @@
         const outcome = result && result.result
         if (outcome && outcome.kind === 'error' && outcome.text) {
           state.error = outcome.text
-          if (state.draft === '' && state.images.length === 0) state.draft = text
+          if (state.draft === '' && state.images.length === 0) setDraft(text)
         }
       } catch (err) {
         state.error = String(err.message || err)
-        if (state.draft === '' && state.images.length === 0) state.draft = text
+        if (state.draft === '' && state.images.length === 0) setDraft(text)
       } finally {
         state.sending = false
         render()
@@ -4391,7 +4528,7 @@
     return sheet(kids)
   }
 
-  function renderChat() {
+  function renderChatParts() {
     // Opening a session (null key) pins to the bottom. After that, stick only
     // while the user is already near the bottom — never yank a reader back to
     // the top, and never fight a deliberate upward scroll.
@@ -4424,7 +4561,6 @@
     for (const approval of chat.approvals) scroller.append(renderApprovalPanel(approval))
     for (const group of chat.questions) scroller.append(renderQuestionPanel(group))
 
-    const file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', multiple: true, onchange: onPickFile })
     const pics = state.images.length
       ? el('div', { class: 'composer-pics' }, state.images.map((img, idx) => el('div', { class: 'composer-pic' }, [
           el('button', {
@@ -4442,8 +4578,8 @@
         ])))
       : null
 
-    const page = el('div', { class: 'mobile chat' }, [
-      el('header', { class: 'mobile-header' }, [
+    return {
+      header: el('header', { class: 'mobile-header' }, [
         el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack(state.workspace ? { view: 'sessions', workspaceId: state.workspace.workspaceId } : { view: 'workspaces' }) }, ['‹']),
         el('h1', {
           class: 'mobile-title mobile-titleInline',
@@ -4452,43 +4588,48 @@
         themeToggle(),
         settingsButton(),
       ]),
-      state.error ? el('p', { class: 'mobile-error mobile-pad' }, [state.error]) : null,
-      state.running ? el('div', { class: 'chat-turn-status' }, [
+      error: state.error ? el('p', { class: 'mobile-error mobile-pad' }, [state.error]) : null,
+      status: state.running ? el('div', { class: 'chat-turn-status' }, [
         el('span', { class: 'chat-turn-dots' }, [el('span'), el('span'), el('span')]),
         '正在输出',
       ]) : null,
       scroller,
-      renderTodoDock(standingTodos()),
+      todos: renderTodoDock(standingTodos()),
       pics,
-      renderSlashMenu(),
-      el('div', { class: 'chat-inputbar' }, [
-        el('textarea', {
-          class: 'chat-input',
-          placeholder: '输入消息，/ 调用命令或技能',
-          enterkeyhint: composerReturnIsNewline() ? 'enter' : 'send',
-          value: state.draft,
-          oninput: (ev) => {
-            const prev = state.draft
-            state.draft = ev.target.value
-            autosizeInput(ev.target)
-            if (state.draft.startsWith('/') || prev.startsWith('/')) render()
-          },
-          onkeydown: (ev) => {
-            if (composerReturnIsNewline()) return
-            if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
-              ev.preventDefault()
-              void send()
-            }
-          },
-        }),
-        el('label', { class: 'pic-btn' }, ['图片', file]),
-        state.running
-          ? el('button', { type: 'button', class: 'chat-send chat-send-stop', disabled: state.sending, onclick: () => void stopTurn() }, ['■'])
-          : el('button', { type: 'button', class: 'chat-send', disabled: state.sending, onclick: () => void send() }, [state.sending ? '发送中…' : '发送']),
-      ]),
-      state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
-    ])
-    return page
+      slash: renderSlashMenu(),
+      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
+    }
+  }
+
+  function chatAboveBar(parts) {
+    return [parts.header, parts.error, parts.status, parts.scroller, parts.todos, parts.pics, parts.slash].filter(Boolean)
+  }
+
+  function applyChatPage() {
+    captureChatScroll()
+    captureTodoScroll()
+    const parts = renderChatParts()
+    const above = chatAboveBar(parts)
+    let page = rootEl.querySelector(':scope > .mobile.chat')
+    if (!page) {
+      page = el('div', { class: 'mobile chat' }, [...above, buildInputbar(), parts.sheet])
+      rootEl.replaceChildren(page)
+    } else {
+      const liveBar = page.querySelector(':scope > .chat-inputbar')
+      for (const child of [...page.children]) {
+        if (child !== liveBar) child.remove()
+      }
+      if (liveBar) {
+        for (const node of above) page.insertBefore(node, liveBar)
+        syncInputbar(liveBar)
+      } else {
+        for (const node of above) page.append(node)
+        page.append(buildInputbar())
+      }
+      if (parts.sheet) page.append(parts.sheet)
+    }
+    applyChatScroll(page.querySelector('.chat-scroll'))
+    applyTodoScroll(page.querySelector('.todo-dock-list'))
   }
 
   function renderSessions() {
@@ -4559,7 +4700,10 @@
     const page = el('div', { class: 'mobile' }, [
       el('header', { class: 'mobile-header' }, [
         el('h1', { class: 'mobile-title' }, ['工作区']),
-        themeToggle(),
+        el('div', { class: 'mobile-header-actions' }, [
+          state.todayAvailable ? todayButton() : null,
+          themeToggle(),
+        ]),
       ]),
     ])
     if (!isStandalone()) {
@@ -4598,9 +4742,6 @@
     }
     page.append(list)
     page.append(el('div', { class: 'pad16' }, [
-      state.todayAvailable
-        ? el('button', { type: 'button', class: 'mobile-button', disabled: state.creating, onclick: () => void openToday() }, [state.creating ? '打开中…' : '今天'])
-        : null,
       el('button', { type: 'button', class: 'mobile-button', onclick: () => enterDir() }, ['+ 新建工作区']),
     ]))
     return page
@@ -4767,7 +4908,10 @@
   }
 
   function render() {
-    if (state.view !== 'chat') closeImageLightbox()
+    if (state.view !== 'chat') {
+      abandonComposerIme()
+      closeImageLightbox()
+    }
     if (state.view === 'boot') {
       rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['正在连接…'])]))
       return
@@ -4799,24 +4943,11 @@
       return
     }
     if (state.view === 'chat') {
-      const active = document.activeElement
-      const restoreInput = active && active.classList && active.classList.contains('chat-input')
-        ? { start: active.selectionStart, end: active.selectionEnd }
-        : null
-      captureChatScroll()
-      captureTodoScroll()
-      const page = renderChat()
-      rootEl.replaceChildren(page)
-      applyChatScroll(page.querySelector('.chat-scroll'))
-      applyTodoScroll(page.querySelector('.todo-dock-list'))
-      if (restoreInput) {
-        const input = page.querySelector('.chat-input')
-        if (input) {
-          input.focus({ preventScroll: true })
-          try { input.setSelectionRange(restoreInput.start, restoreInput.end) } catch { /* ignore */ }
-        }
+      if (imeComposing) {
+        composerRenderQueued = true
+        return
       }
-      autosizeInput(page.querySelector('.chat-input'))
+      applyChatPage()
       return
     }
   }
@@ -4887,6 +5018,31 @@
   })
   window.addEventListener('pageshow', () => { onForeground() })
   window.addEventListener('online', () => { onForeground() })
+  document.addEventListener('compositionstart', (ev) => {
+    const tag = ev.target && ev.target.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA') imeComposing = true
+  }, true)
+  document.addEventListener('compositionend', (ev) => {
+    const tag = ev.target && ev.target.tagName
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return
+    imeComposing = false
+    if (ev.target.classList && ev.target.classList.contains('chat-input')) {
+      state.draft = ev.target.value
+      autosizeInput(ev.target)
+    }
+    flushComposerRender()
+  }, true)
+  document.addEventListener('focusout', (ev) => {
+    const tag = ev.target && ev.target.tagName
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return
+    if (!imeComposing) return
+    setTimeout(() => {
+      if (!imeComposing) return
+      imeComposing = false
+      if (composerNode) state.draft = composerNode.value
+      flushComposerRender()
+    }, 0)
+  }, true)
   render()
   void boot()
 })()
