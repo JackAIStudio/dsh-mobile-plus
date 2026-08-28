@@ -29,6 +29,11 @@ window.__ModuleLoader__.load({
     const MP_CSS = [
       '/* dsh-mobile-plus — sidebar foot trigger + pairing panel (port of dsh-remote-web-ui remote.module.css) */',
       '.mp-trigger{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:50%;padding:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background-color 120ms ease,color 120ms ease,box-shadow 120ms ease}',
+      /* Host foot is a column (footer.action above Settings). Pull the icon
+         onto the Settings row, right side, while the sidebar is expanded. */
+      '[class*="_footArea"]:has(.mp-trigger-wide){flex-direction:row;align-items:center;gap:4px}',
+      '[class*="_footArea"]:has(.mp-trigger-wide) [class*="_settingsArea"]{flex:1 1 auto;width:auto;min-width:0}',
+      '[class*="_footArea"]:has(.mp-trigger-wide) [class*="_footerActions"]{order:2;flex:none;width:auto;align-items:center;justify-content:flex-end}',
       '.mp-trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
       '.mp-trigger:active:not(:disabled){background:var(--dsw-alias-interactive-bg-active)}',
       '.mp-trigger:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2),0 0 0 4px var(--dsw-alias-brand-primary)}',
@@ -355,8 +360,10 @@ window.__ModuleLoader__.load({
         h('p', { className: 'mp-note' }, ['手机端发送的图片会写入工作区的 .dsh-mobile-inbox/，最新一张为 latest.jpg']))
     }
 
-    /** Sidebar foot entry: icon-only remote logo + the pairing panel. */
-    function MpEntry() {
+    /** Sidebar foot entry: icon-only remote logo + the pairing panel.
+     *  `wide` comes from the sidebar slot; the matching CSS class lets the
+     *  trigger sit on the Settings row instead of a wasted extra line. */
+    function MpEntry({ wide }) {
       const [open, setOpen] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
       const [issue, setIssue] = React.useState(null)
@@ -468,7 +475,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'mp-entry', style: { display: 'contents' } },
         h('button', {
           type: 'button',
-          className: 'mp-trigger',
+          className: wide === false ? 'mp-trigger' : 'mp-trigger mp-trigger-wide',
           'aria-label': '手机远程',
           'aria-expanded': open,
           title: '手机远程',

@@ -39,6 +39,7 @@ const ALLOW = new Set([
   'command.execute',
   'mobile.pending',
   'mobile.respond',
+  'quota.read',
 ])
 
 const ROOT = dirname(fileURLToPath(import.meta.url))
@@ -83,6 +84,43 @@ async function readBody(req, maxBytes) {
   const text = Buffer.concat(chunks).toString('utf8')
   if (text === '') return {}
   return JSON.parse(text)
+}
+
+async function fetchLoopbackJson(port, path, signal) {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 10_000)
+  const onAbort = () => ac.abort()
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timer)
+      return { present: false, code: 'aborted' }
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  }
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      method: 'GET',
+      headers: { accept: 'application/json', 'user-agent': 'dsh-mobile-plus/quota' },
+      signal: ac.signal,
+    })
+    if (res.status === 404) return { present: false, code: 'missing-plugin' }
+    const text = await res.text()
+    let body
+    try {
+      body = JSON.parse(text)
+    } catch {
+      return { present: false, code: 'malformed' }
+    }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      return { present: false, code: 'malformed' }
+    }
+    return { present: true, ...body }
+  } catch {
+    return { present: false, code: ac.signal.aborted ? 'timeout' : 'unavailable' }
+  } finally {
+    clearTimeout(timer)
+    if (signal) signal.removeEventListener('abort', onAbort)
+  }
 }
 
 function hostnameOf(req) {
@@ -156,6 +194,7 @@ export function apply(ctx, config = {}) {
   if (!enabled) return
 
   const publicBaseUrl = String(config.publicBaseUrl || 'http://your-relay-host').replace(/\/$/, '')
+  const requirePairing = config.requirePairing !== false
   let publicHost = ''
   try {
     publicHost = new URL(publicBaseUrl).host
@@ -287,7 +326,7 @@ export function apply(ctx, config = {}) {
     }))
     json(res, 200, {
       ok: true,
-      paired: touch(req),
+      paired: requirePairing ? touch(req) : true,
       deviceCount: alive.count,
       onlineCount: rows.filter((row) => row.online).length,
       devices: rows,
@@ -411,6 +450,22 @@ export function apply(ctx, config = {}) {
   }
 
   const pendingTracker = createPendingTracker()
+  let quotaCache = { at: 0, value: null }
+  const QUOTA_TTL_MS = 8_000
+
+  async function readQuotaSnapshot(force, signal) {
+    if (!force && quotaCache.value && Date.now() - quotaCache.at < QUOTA_TTL_MS) {
+      return quotaCache.value
+    }
+    const port = ctx.webServer.port
+    const [deepseek, grok] = await Promise.all([
+      fetchLoopbackJson(port, '/dsh-deepseek-balance', signal),
+      fetchLoopbackJson(port, '/dsh-grok-oauth/usage', signal),
+    ])
+    const value = { deepseek, grok }
+    quotaCache = { at: Date.now(), value }
+    return value
+  }
 
   const sessionCwd = async (sessionId) => {
     try {
@@ -452,9 +507,11 @@ export function apply(ctx, config = {}) {
       }
     })
     const note = [
-      '【手机发来的图片】请立刻用 read_image 工具读取下面的本地路径，不要说看不到图。最新一张是最后一行。',
-      ...paths.map((p) => p),
-      '（会话内容里附带的图片是缩略图，请以 read_image 读取的本地原图为准进行识别。）',
+      '【手机发来的图片】本地原图路径如下（按发送顺序，最后一条是最新）：',
+      ...paths,
+      '请立刻用 read_image 读取这些路径后再回答。',
+      '会话内容里附带的 image 只是给界面预览的缩略图，不要根据缩略图识别、读字或下结论。原图已经过一次压缩，这就是你应该看的版本。',
+      '不要在尚未调用 read_image 时说看不到图。若工具失败、路径不存在、或当前模型不支持图片输入：直接说明具体原因，不要编造图片内容；纯文本模型请让用户换成支持看图的模型。',
     ].join('\n')
     // 传给模型的内容只保留缩略图：剔除 fullData（完整 base64 不再进会话日志，
     // 历史传输从每张 ~530KB 降到 ~25KB，打开会话/轮询回落显著变快）。
@@ -755,6 +812,11 @@ export function apply(ctx, config = {}) {
       }
       return { type: 'server-response', rpcId, result: { ok: true, value: { matched: true, result: execution.result } } }
     }
+    if (method === 'quota.read') {
+      const force = payload && payload.force === true
+      const value = await readQuotaSnapshot(force, signal)
+      return { type: 'server-response', rpcId, result: { ok: true, value } }
+    }
     if (method === 'session.list') {
       const full = await api.sessions.list({ rpcId, payload })
       if (!full.result.ok) return wrap(rpcId, full)
@@ -778,12 +840,16 @@ export function apply(ctx, config = {}) {
       await handleEvents(req, res)
       return
     }
+    if (pathname === `${PREFIX}/api/events.host`) {
+      await handleHostEvents(req, res)
+      return
+    }
     if (req.method !== 'POST') {
       res.writeHead(405)
       res.end()
       return
     }
-    if (!touch(req)) {
+    if (requirePairing && !touch(req)) {
       json(res, 403, { ok: false, error: { code: 'unpaired', message: 'not paired' } })
       return
     }
@@ -817,20 +883,25 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  const handleEvents = async (req, res) => {
+  /**
+   * Shared SSE writer for mux (chat events) and host (session running /
+   * workspace membership). Phone relays otherwise buffer for seconds.
+   */
+  async function pipeSse(req, res, openFrames) {
     if (req.method !== 'GET') {
       res.writeHead(405)
       res.end()
       return
     }
-    if (!touch(req)) {
+    if (requirePairing && !touch(req)) {
       json(res, 403, { ok: false, error: { code: 'unpaired' } })
       return
     }
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache',
+      'cache-control': 'no-cache, no-transform',
       connection: 'keep-alive',
+      'x-accel-buffering': 'no',
     })
     const controller = new AbortController()
     let closed = false
@@ -847,10 +918,7 @@ export function apply(ctx, config = {}) {
     res.on('close', onClose)
     req.on('close', onClose)
     try {
-      const frames = ctx.apiProxy.events.mux(
-        { rpcId: `mp-mux-${Date.now().toString(36)}`, payload: {} },
-        controller.signal,
-      )
+      const frames = openFrames(controller.signal)
       for await (const frame of frames) {
         if (closed) break
         pendingTracker.onFrame(frame)
@@ -862,6 +930,24 @@ export function apply(ctx, config = {}) {
       onClose()
     }
     if (!closed) res.end()
+  }
+
+  const handleEvents = async (req, res) => {
+    await pipeSse(req, res, (signal) => ctx.apiProxy.events.mux(
+      { rpcId: `mp-mux-${Date.now().toString(36)}`, payload: {} },
+      signal,
+    ))
+  }
+
+  const handleHostEvents = async (req, res) => {
+    if (!ctx.apiProxy.events || typeof ctx.apiProxy.events.host !== 'function') {
+      json(res, 404, { ok: false, error: { code: 'unavailable', message: 'host events unsupported' } })
+      return
+    }
+    await pipeSse(req, res, (signal) => ctx.apiProxy.events.host(
+      { rpcId: `mp-host-${Date.now().toString(36)}`, payload: {} },
+      signal,
+    ))
   }
 
   ctx.effect(() => {
@@ -891,6 +977,7 @@ export function apply(ctx, config = {}) {
       { kind: 'exact', path: `${PREFIX}/pair/stop`, handler: handleStop },
       { kind: 'exact', path: `${PREFIX}/pair/revoke`, handler: handleRevoke },
       { kind: 'exact', path: `${PREFIX}/api/events.mux`, handler: handleEvents },
+      { kind: 'exact', path: `${PREFIX}/api/events.host`, handler: handleHostEvents },
       { kind: 'prefix', path: `${PREFIX}/api`, handler: handleApi },
     ]
     const stop = routes.map((route) => ctx.webServer.register(route))

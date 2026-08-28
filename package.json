@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plus",
-  "version": "0.2.7",
+  "version": "0.2.13",
   "private": true,
   "description": "Independent DSH mobile remote: chat with text and images, with an icon-only desktop sidebar trigger and pairing panel. Does not modify @linxin666/dsh-web-all.",
   "type": "module",

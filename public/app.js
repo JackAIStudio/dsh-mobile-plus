@@ -4,11 +4,14 @@
  * This is a faithful port of the old plugin's mobile surface
  * (@linxin666/dsh-remote-web-ui/src/mobile/*) — same view state machine
  * (workspaces → sessions → chat), same markup/classes (mobileCss), same
- * markdown renderer — with ONE difference: the chat composer can attach
- * images (相册/拍照), and sent images also land in the workspace's
- * .dsh-mobile-inbox/ via the host.
+ * markdown renderer — with TWO differences: the chat composer can attach
+ * images (相册/拍照), sent images also land in the workspace's
+ * .dsh-mobile-inbox/ via the host; and the current workspace/session is
+ * addressable (`#/ws/:id/s/:id`) so a refresh or PWA relaunch returns
+ * there instead of the workspace list.
  *
- * All data flows ride our own /mp/api RPC + /mp/api/events.mux.
+ * All data flows ride our own /mp/api RPC + /mp/api/events.mux
+ * (chat) and /mp/api/events.host (session running / workspace membership).
  */
 (() => {
   'use strict'
@@ -35,8 +38,11 @@
     sending: false,
     running: false,
     dir: null, // { path, home, crumbs, entries, truncated, ... }
+    home: '', // host home from listDirectory, used to abbreviate workspace paths
     dirError: '',
-    sheet: null, // 'display' | null (bottom sheet)
+    todayAvailable: false,
+    sheet: null, // 'settings' | 'model' | 'quota' | null (bottom sheet)
+    sheetReturn: null, // 'settings' when the model sheet was opened from 设置
   }
 
   /** Live chat fold state (independent of the view state). */
@@ -54,19 +60,34 @@
     showToolCalls: readStoredBoolean('dsh.mobile.showToolCalls', true),
     showSystemMessages: readStoredBoolean('dsh.mobile.showSystemMessages', false),
     // Model picker state (old-plugin ModelSheet port): directory for the
-    // open session + the chip label.
+    // open session; the current pick is shown inside 设置, not a composer chip.
     currentModel: undefined, // { provider, model, reasoningEffort? }
     modelSheet: { status: 'loading' }, // loading | ready{data} | error{message}
     modelBusy: false,
     modelError: undefined,
-    // Standing todo list (Web TodoDock / 任务规划). Seeded from history
-    // projections and kept live via session/projection + todo_write args.
-    todos: null, // null = unknown (parse from messages); [] = cleared this turn
-    todoCollapsed: false,
+    // Standing todo list (Web TodoDock / 任务规划). Same lifetime as
+    // dsh-tool-todo: latest todo/write with no later turn/start.
+    todos: null, // null = unknown; [] = cleared this turn / never written
+    // Mobile chrome is short: collapse by default and remember the last choice.
+    todoCollapsed: readStoredBoolean('dsh.mobile.todoCollapsed', true),
     slashCommands: [],
     slashSkills: [],
     approvals: [],
     questions: [],
+    // Local user bubbles shown immediately on send, before session.prompt
+    // returns and before the mux echo arrives. Kept out of EventFolder so a
+    // synthetic seq cannot poison the watermark.
+    outbox: [],
+  }
+
+  /** DeepSeek 余额 + Grok 剩余额度（主机代理本机插件，密钥不进手机）。 */
+  const QUOTA_DEBOUNCE_MS = 15 * 1000
+  const quota = {
+    status: 'idle', // idle | loading | ready
+    deepseek: null,
+    grok: null,
+    lastFetchAt: 0,
+    inFlight: null,
   }
 
   /** Read a boolean from localStorage defensively; falls back to the default. */
@@ -89,9 +110,132 @@
     }
   }
 
+  /**
+   * Deep-link the drill-down (workspaces → sessions → chat) so a refresh
+   * lands on the same place. Hash routing avoids extra /mp/* server routes
+   * and leaves `?pair=` alone. PWA start_url is still `/mp/`, so the last
+   * non-wizard location is also mirrored to localStorage.
+   *
+   *   #/                              workspaces
+   *   #/ws/:workspaceId               sessions
+   *   #/ws/:workspaceId/s/:sessionId  chat
+   *   #/dir                           directory picker (not persisted)
+   */
+  const LOCATION_KEY = 'dsh.mobile.location'
+  let ignoringPop = false
+  let routeGen = 0
+  let chatQuery = 0
+
+  function decodeRouteSeg(part) {
+    try { return decodeURIComponent(part) } catch { return part }
+  }
+
+  function parseRoute(hash) {
+    const source = hash === undefined ? window.location.hash : String(hash || '')
+    const path = source.replace(/^#/, '').trim().replace(/^\/+|\/+$/g, '')
+    if (path === '') return { view: 'workspaces', empty: true }
+    const segs = path.split('/').map(decodeRouteSeg).filter(Boolean)
+    if (segs.length === 1 && segs[0] === 'dir') return { view: 'dir' }
+    if (segs[0] === 'ws' && segs[1]) {
+      if (segs[2] === 's' && segs[3]) {
+        return { view: 'chat', workspaceId: segs[1], sessionId: segs[3] }
+      }
+      if (segs.length === 2) return { view: 'sessions', workspaceId: segs[1] }
+    }
+    return { view: 'workspaces' }
+  }
+
+  function formatRoute(route) {
+    if (!route || route.view === 'workspaces') return '#/'
+    if (route.view === 'dir') return '#/dir'
+    if (route.view === 'chat' && route.workspaceId && route.sessionId) {
+      return `#/ws/${encodeURIComponent(route.workspaceId)}/s/${encodeURIComponent(route.sessionId)}`
+    }
+    if (route.workspaceId) return `#/ws/${encodeURIComponent(route.workspaceId)}`
+    return '#/'
+  }
+
+  function persistRoute(route) {
+    let saved = { view: 'workspaces' }
+    if (route && route.view === 'chat' && route.workspaceId && route.sessionId) {
+      saved = { view: 'chat', workspaceId: route.workspaceId, sessionId: route.sessionId }
+    } else if (route && (route.view === 'sessions' || route.view === 'chat') && route.workspaceId) {
+      saved = { view: 'sessions', workspaceId: route.workspaceId }
+    }
+    try { localStorage.setItem(LOCATION_KEY, JSON.stringify(saved)) } catch { /* privacy mode */ }
+  }
+
+  function readPersistedRoute() {
+    try {
+      const raw = localStorage.getItem(LOCATION_KEY)
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object') return null
+      const workspaceId = typeof parsed.workspaceId === 'string' ? parsed.workspaceId : ''
+      const sessionId = typeof parsed.sessionId === 'string' ? parsed.sessionId : ''
+      if (!workspaceId) return { view: 'workspaces' }
+      if (parsed.view === 'sessions') return { view: 'sessions', workspaceId }
+      if (sessionId && parsed.view !== 'workspaces') return { view: 'chat', workspaceId, sessionId }
+      return { view: 'sessions', workspaceId }
+    } catch {
+      return null
+    }
+  }
+
+  function commitLocation(route, mode) {
+    const clean = {
+      view: route && route.view ? route.view : 'workspaces',
+      ...(route && route.workspaceId ? { workspaceId: route.workspaceId } : {}),
+      ...(route && route.sessionId ? { sessionId: route.sessionId } : {}),
+    }
+    persistRoute(clean)
+    if (mode === 'none') return
+    const hash = formatRoute(clean)
+    const url = `${window.location.pathname}${window.location.search}${hash}`
+    const same = formatRoute(parseRoute(window.location.hash)) === hash
+    const prevDepth = typeof history.state?.mpDepth === 'number' ? history.state.mpDepth : 0
+    const rec = { mp: clean, mpDepth: (mode === 'push' && !same) ? prevDepth + 1 : prevDepth }
+    ignoringPop = true
+    try {
+      if (mode === 'push' && !same) history.pushState(rec, '', url)
+      else history.replaceState(rec, '', url)
+    } catch {
+      try { history.replaceState(rec, '', url) } catch { /* ignore */ }
+    }
+    ignoringPop = false
+  }
+
+  function stripPairQuery() {
+    const url = new URL(window.location.href)
+    if (!url.searchParams.has('pair')) return
+    url.searchParams.delete('pair')
+    ignoringPop = true
+    try {
+      history.replaceState(history.state || {}, '', `${url.pathname}${url.search}${url.hash}`)
+    } catch { /* ignore */ }
+    ignoringPop = false
+  }
+
+  function locationModeFor(opts) {
+    if (opts && opts.fromPopstate) return 'none'
+    if (opts && opts.replace) return 'replace'
+    return 'push'
+  }
+
+  function navBack(parent) {
+    if (history.state && typeof history.state.mpDepth === 'number' && history.state.mpDepth > 0) {
+      history.back()
+      return
+    }
+    void applyRoute(parent, { replace: true })
+  }
+
   let rpcN = 0
   let mux = null
+  let host = null
   let pendingPoll = null
+  let liveQuery = 0
+  let listPollTimer = null
   let lastMsgScrollKey = null // last visible message id; null forces stick-to-bottom
   let svgUid = 0
   let prependAdjust = null // { height, top } captured before loadOlder
@@ -139,8 +283,41 @@
 
   function basename(path) {
     if (!path) return ''
-    const parts = String(path).split('/').filter(Boolean)
+    const parts = String(path).replace(/[/\\]+$/, '').split(/[/\\]/).filter(Boolean)
     return parts[parts.length - 1] || path
+  }
+
+  /**
+   * Workspace display name, matching Web/PC: Host `title` (basename at create,
+   * or a user rename). Absolute-path titles from stale records fall back to
+   * the folder name so the row never leads with a full path.
+   */
+  function workspaceTitle(ws) {
+    const title = typeof ws?.title === 'string' ? ws.title.trim() : ''
+    if (title && !/[/\\]/.test(title)) return title
+    return basename(ws?.path) || title || '工作区'
+  }
+
+  function isWindowsStylePath(value) {
+    return /^[A-Za-z]:[/\\]/.test(value) || String(value).startsWith('\\\\')
+  }
+
+  /**
+   * Display-only POSIX home abbreviation, same rules as Web `abbreviateHomePath`.
+   * Prefer `state.home` from the directory picker; otherwise infer `/Users/…`
+   * or `/home/…` from the path itself. Windows drive/UNC paths stay verbatim.
+   */
+  function abbreviateHomePath(path) {
+    if (!path) return ''
+    const raw = String(path)
+    if (isWindowsStylePath(raw)) return raw
+    const inferred = (raw.match(/^(\/(?:Users|home)\/[^/]+)/) || [])[1] || ''
+    const home = String(state.home || inferred).replace(/\/+$/, '')
+    if (!home || home === '/' || isWindowsStylePath(home)) return raw
+    const trimmed = raw.replace(/\/+$/, '')
+    if (trimmed === home) return '~'
+    if (raw.startsWith(`${home}/`)) return `~${raw.slice(home.length)}`
+    return raw
   }
 
   function formatTime(ms) {
@@ -164,6 +341,7 @@
         running: false,
         prevRunning: undefined,
         completed: false,
+        liveAt: 0,
         pending: new Map(),
       }
       sessionLive.set(sessionId, row)
@@ -201,19 +379,24 @@
   /**
    * Merge host session.list facts with the live overlay. First observation of
    * a running bit does not arm the green completion reminder (Web rule).
+   * A mux/host frame newer than this snapshot wins; otherwise the list is
+   * the reconciliation source — never leave a finished session spinning
+   * just because turn/end was missed on the phone relay.
    */
-  function hydrateSessionLive(item) {
+  function hydrateSessionLive(item, listedAt = 0) {
     const row = ensureLive(item.sessionId)
+    if (!Object.prototype.hasOwnProperty.call(item, 'running')) {
+      if (row.prevRunning === undefined) row.prevRunning = row.running
+      return
+    }
     const listedRunning = item.running === true
+    if (row.liveAt && listedAt && row.liveAt > listedAt) {
+      if (row.prevRunning === undefined) row.prevRunning = row.running
+      return
+    }
     if (row.prevRunning === undefined) {
       row.running = listedRunning || row.running === true
       row.prevRunning = row.running
-      return
-    }
-    // Mux overlay is fresher than session.list: never demote a live-running
-    // session to the green "done" reminder just because the list snapshot lagged.
-    if (row.running && !listedRunning) {
-      row.prevRunning = true
       return
     }
     row.running = listedRunning
@@ -230,7 +413,7 @@
     if (!row) return item
     return {
       ...item,
-      running: row.running || item.running === true,
+      running: row.running === true,
       completed: row.completed === true,
       pendingInteraction: primaryPending(row),
     }
@@ -274,16 +457,30 @@
     if (!frame || typeof frame.type !== 'string' || typeof frame.sessionId !== 'string') return false
     const row = ensureLive(frame.sessionId)
     const before = `${row.running}|${row.completed}|${primaryPending(row) || ''}`
-    if (frame.type === 'session/event') {
+    if (frame.type === 'host/session-status') {
+      const next = frame.running === true
+      row.liveAt = Date.now()
+      if (next) {
+        row.running = true
+        row.completed = false
+        row.prevRunning = true
+      } else {
+        row.running = false
+        if (row.prevRunning && frame.sessionId !== state.session?.sessionId) row.completed = true
+        row.prevRunning = false
+      }
+    } else if (frame.type === 'session/event') {
       const ev = frame.event
       if (ev && ev.type === 'turn/start') {
         row.running = true
         row.completed = false
         row.prevRunning = true
+        row.liveAt = Date.now()
       } else if (ev && ev.type === 'turn/end') {
         row.running = false
         if (row.prevRunning && frame.sessionId !== state.session?.sessionId) row.completed = true
         row.prevRunning = false
+        row.liveAt = Date.now()
       }
     } else if (frame.type === 'approval/requested') {
       row.pending.set(`a:${frame.approvalId}`, 'approval')
@@ -377,25 +574,55 @@
   function checklistIcon() {
     return el('span', {
       class: 'todo-dock-lead',
-      html: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.5 7.2 5.4 9.1 10.5 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="1.3" y="1.3" width="11.4" height="11.4" rx="2.2" stroke="currentColor" stroke-width="1.2"/></svg>',
+      html: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="1.6" y="1.6" width="14.8" height="14.8" rx="3" stroke="currentColor" stroke-width="1.5"/><path d="M4.6 9.3 7.1 11.8 13.4 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     })
+  }
+
+  function chevronIcon() {
+    return el('span', {
+      class: 'todo-dock-chevron',
+      'aria-hidden': 'true',
+      html: '<svg viewBox="0 0 20 20" fill="none"><path d="M4.4 7.4 10 13 15.6 7.4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    })
+  }
+
+  /** Guard against pointerdown+click (or a replacement node eating the leftover click). */
+  let todoToggleLock = 0
+
+  function toggleTodoDock(ev) {
+    if (ev) {
+      ev.preventDefault()
+      ev.stopPropagation()
+    }
+    const now = Date.now()
+    if (now - todoToggleLock < 400) return
+    todoToggleLock = now
+    const next = chat.todoCollapsed !== true
+    chat.todoCollapsed = next
+    writeStoredBoolean('dsh.mobile.todoCollapsed', next)
+    render()
   }
 
   function renderTodoDock(todos) {
     if (!todos || todos.length === 0) return null
     const collapsed = chat.todoCollapsed === true
-    return el('section', { class: 'todo-dock', 'aria-label': '任务' }, [
+    return el('section', {
+      class: collapsed ? 'todo-dock is-collapsed' : 'todo-dock',
+      'aria-label': '任务',
+    }, [
       el('div', { class: 'todo-dock-body' }, [
         el('button', {
           type: 'button',
           class: 'todo-dock-header',
           'aria-expanded': String(!collapsed),
-          onclick: () => { chat.todoCollapsed = !collapsed; render() },
+          'aria-label': collapsed ? '展开任务' : '收起任务',
+          onpointerdown: toggleTodoDock,
+          onclick: toggleTodoDock,
         }, [
           checklistIcon(),
           el('span', { class: 'todo-dock-title' }, ['任务']),
           el('span', { class: 'todo-dock-progress' }, [todoProgressLabel(todos)]),
-          el('span', { class: 'todo-dock-chevron' }, [collapsed ? '▴' : '▾']),
+          chevronIcon(),
         ]),
         collapsed ? null : todoList(todos),
       ]),
@@ -414,35 +641,48 @@
   }
 
   function standingTodos() {
-    if (Array.isArray(chat.todos)) return chat.todos
-    for (let i = chat.messages.length - 1; i >= 0; i -= 1) {
-      const tools = chat.messages[i]?.tools
-      if (!tools) continue
-      for (let j = tools.length - 1; j >= 0; j -= 1) {
-        if (tools[j].name !== 'todo_write') continue
-        const parsed = parseTodos(tools[j].arguments)
-        if (parsed) return parsed
-      }
+    return Array.isArray(chat.todos) ? chat.todos : []
+  }
+
+  /**
+   * Web TodoDock lifetime (`dsh-tool-todo`): take each `todo/write` whole
+   * list, and clear on `turn/start`. `turn/end` keeps the finished checklist.
+   * A new turn must not keep showing the previous plan.
+   */
+  function applyStandingTodoEvent(list, ev) {
+    if (!ev || typeof ev.type !== 'string') return list
+    if (ev.type === 'turn/start') return []
+    const data = isRecord(ev.data) ? ev.data : {}
+    if (ev.type === 'todo/write') {
+      const parsed = parseTodos(data.todos ?? data)
+      return parsed || []
     }
-    return []
+    if (ev.type === 'tool/call' && pickString(data.name) === 'todo_write') {
+      const parsed = parseTodos(pickArgs(data.arguments))
+      return parsed || list
+    }
+    return list
   }
 
   function todosFromEvents(events) {
-    if (!Array.isArray(events)) return null
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-      const ev = toWireEvent(events[i])
+    if (!Array.isArray(events) || events.length === 0) return null
+    let standing = null
+    let seen = false
+    for (const entry of events) {
+      const ev = toWireEvent(entry)
       if (!ev || typeof ev.type !== 'string') continue
-      const data = isRecord(ev.data) ? ev.data : {}
-      if (ev.type === 'todo/write') {
-        const parsed = parseTodos(data.todos ?? data)
-        if (parsed) return parsed
+      if (ev.type === 'turn/start') {
+        standing = []
+        seen = true
+        continue
       }
-      if (ev.type === 'tool/call' && pickString(data.name) === 'todo_write') {
-        const parsed = parseTodos(pickArgs(data.arguments))
-        if (parsed) return parsed
+      if (ev.type === 'todo/write') {
+        const data = isRecord(ev.data) ? ev.data : {}
+        standing = parseTodos(data.todos ?? data) || []
+        seen = true
       }
     }
-    return null
+    return seen ? standing : null
   }
 
   function normalizeTodos(value) {
@@ -458,7 +698,78 @@
   }
 
   function todosFromProjections(page) {
-    return normalizeTodos(page?.projections?.values?.todos)
+    const values = page?.projections?.values
+    if (!values || !Object.hasOwn(values, 'todos')) return null
+    // Host sends null before the first write and again on each turn/start.
+    // That is a real empty standing plan — do not resurrect an older list.
+    return normalizeTodos(values.todos) ?? []
+  }
+
+  function projectionAsOfSeq(page) {
+    return typeof page?.projections?.asOfSeq === 'number' ? page.projections.asOfSeq : undefined
+  }
+
+  function applyTodoEventsAfter(list, events, afterSeq) {
+    let next = list
+    if (!Array.isArray(events)) return next
+    for (const entry of events) {
+      const ev = toWireEvent(entry)
+      if (!ev) continue
+      if (typeof afterSeq === 'number' && typeof ev.seq === 'number' && ev.seq <= afterSeq) continue
+      next = applyStandingTodoEvent(next, ev)
+    }
+    return next
+  }
+
+  /** Per-session seq watermark for the standing todos plan (higher-seq-wins). */
+  const todoWatermark = new Map()
+
+  function acceptTodoSeq(sessionId, seq) {
+    if (typeof seq !== 'number') return true
+    const prev = todoWatermark.get(sessionId)
+    if (prev !== undefined && seq < prev) return false
+    if (prev === undefined || seq > prev) todoWatermark.set(sessionId, seq)
+    return true
+  }
+
+  function seedTodosFromPage(sessionId, page, extraEvents) {
+    const projected = todosFromProjections(page)
+    const asOf = projectionAsOfSeq(page)
+    const base = projected !== null ? projected : (todosFromEvents(page?.events) ?? [])
+    chat.todos = applyTodoEventsAfter(base, extraEvents, asOf)
+    let floor = asOf
+    if (Array.isArray(extraEvents)) {
+      for (const entry of extraEvents) {
+        const ev = toWireEvent(entry)
+        if (typeof ev?.seq === 'number' && (floor === undefined || ev.seq > floor)) floor = ev.seq
+      }
+    }
+    if (typeof floor === 'number') {
+      const prev = todoWatermark.get(sessionId)
+      if (prev === undefined || floor > prev) todoWatermark.set(sessionId, floor)
+    }
+  }
+
+  function applyTodosProjection(sessionId, value, seq) {
+    if (sessionId !== state.session?.sessionId) return false
+    if (!acceptTodoSeq(sessionId, seq)) return false
+    chat.todos = normalizeTodos(value) ?? []
+    return true
+  }
+
+  function isStandingTodoEvent(ev) {
+    if (!ev || typeof ev.type !== 'string') return false
+    if (ev.type === 'turn/start' || ev.type === 'todo/write') return true
+    if (ev.type !== 'tool/call') return false
+    const data = isRecord(ev.data) ? ev.data : {}
+    return pickString(data.name) === 'todo_write'
+  }
+
+  function applyTodosLiveEvent(sessionId, ev) {
+    if (!isStandingTodoEvent(ev)) return false
+    if (!acceptTodoSeq(sessionId, typeof ev.seq === 'number' ? ev.seq : undefined)) return false
+    chat.todos = applyStandingTodoEvent(Array.isArray(chat.todos) ? chat.todos : [], ev)
+    return true
   }
 
   /* ── chat scroll restore ───────────────────────────────────────────── */
@@ -685,6 +996,12 @@
     render()
   }
 
+  function headerIcon(markup) {
+    // innerHTML so the browser parses real SVG namespace nodes.
+    // createElement('svg') stays in the HTML namespace and paints nothing.
+    return el('span', { class: 'mobile-header-icon', 'aria-hidden': 'true', html: markup })
+  }
+
   function themeToggle() {
     const dark = storedTheme() === 'dark'
     return el('button', {
@@ -692,14 +1009,32 @@
       'aria-label': dark ? '切换到浅色' : '切换到深色',
       onclick: toggleTheme,
     }, [
-      dark
-        ? el('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'aria-hidden': 'true' }, [
-            el('circle', { cx: 12, cy: 12, r: 4.2 }),
-            el('path', { d: 'M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19' }),
-          ])
-        : el('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' }, [
-            el('path', { d: 'M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z' }),
-          ]),
+      headerIcon(dark
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>'),
+    ])
+  }
+
+  /** Chat-only header control: model / display / context live in one sheet. */
+  function settingsButton() {
+    const pct = contextUsage()
+    const warn = pct !== undefined && pct >= 80
+    const open = state.sheet === 'settings' || state.sheet === 'model' || state.sheet === 'quota'
+    return el('button', {
+      type: 'button',
+      class: 'mobile-settings-btn',
+      'aria-label': warn ? `设置，上下文已用 ${pct}%` : '设置',
+      'aria-haspopup': 'dialog',
+      'aria-expanded': open ? 'true' : 'false',
+      onclick: () => {
+        state.sheetReturn = null
+        state.sheet = state.sheet === 'settings' ? null : 'settings'
+        render()
+      },
+    }, [
+      headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>'),
+      el('span', { class: 'mobile-settings-label' }, ['设置']),
+      warn ? el('span', { class: 'mobile-settings-dot', 'aria-hidden': 'true' }) : null,
     ])
   }
 
@@ -976,19 +1311,266 @@
     throw new Error(envelope?.result?.error?.message || '请求失败')
   }
 
+  function formatMoney(currency, amount) {
+    if (!Number.isFinite(amount)) return '—'
+    const body = amount.toLocaleString('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+    if (currency === 'CNY') return '¥' + body
+    if (currency === 'USD') return '$' + body
+    return body + ' ' + currency
+  }
+
+  function pickPrimaryBalance(balances) {
+    if (!Array.isArray(balances) || balances.length === 0) return null
+    return balances.find((row) => row.currency === 'CNY')
+      || balances.find((row) => row.currency === 'USD')
+      || balances[0]
+      || null
+  }
+
+  function grokUsedPercent(usage) {
+    if (!usage || !Array.isArray(usage.windows)) return undefined
+    const total = usage.windows.find((row) => row.id === 'SuperGrok' || row.id === 'weekly')
+    if (total && total.unit === 'percent') return total.used
+    const products = usage.windows.filter((row) => row.id !== 'SuperGrok' && row.id !== 'weekly')
+    if (products.length > 0 && products.every((row) => row.unit === 'percent')) {
+      return Math.min(100, Math.round(products.reduce((sum, row) => sum + row.used, 0) * 10) / 10)
+    }
+    return undefined
+  }
+
+  function grokRemainingPercent(usage) {
+    const used = grokUsedPercent(usage)
+    if (used === undefined) return undefined
+    return Math.max(0, Math.round((100 - used) * 10) / 10)
+  }
+
+  function grokWindowLabel(id) {
+    if (id === 'SuperGrok' || id === 'weekly') return 'SuperGrok'
+    if (id === 'GrokBuild') return 'Build'
+    if (id === 'GrokImagine') return 'Imagine'
+    if (id === 'GrokAppBuilder') return 'App Builder'
+    return id
+  }
+
+  function formatQuotaClock(value) {
+    const ms = typeof value === 'number' ? value : Date.parse(value)
+    if (!Number.isFinite(ms)) return ''
+    try {
+      return new Date(ms).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+    } catch {
+      return ''
+    }
+  }
+
+  function formatQuotaStamp(iso) {
+    const at = new Date(iso)
+    if (Number.isNaN(at.getTime())) return iso
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${at.getFullYear()}年${at.getMonth() + 1}月${at.getDate()}日 ${pad(at.getHours())}:${pad(at.getMinutes())}`
+  }
+
+  function deepseekView() {
+    const row = quota.deepseek
+    if (!row || row.present === false) return null
+    const primary = pickPrimaryBalance(row.balances)
+    const loading = quota.status === 'loading'
+    if (primary) {
+      const low = primary.currency === 'USD' ? primary.total < 1 : primary.total < 5
+      return {
+        amount: formatMoney(primary.currency, primary.total),
+        kind: low ? 'warn' : 'ready',
+        loading,
+        primary,
+        available: row.available !== false,
+        fetchedAt: row.fetchedAt,
+        balances: row.balances,
+      }
+    }
+    if (row.ok === false) {
+      return {
+        amount: row.code === 'missing-key' ? '未配置' : '查不到',
+        kind: row.code === 'missing-key' ? 'muted' : 'error',
+        loading,
+        error: row.error,
+        code: row.code,
+      }
+    }
+    if (quota.status === 'ready') return { amount: '无余额', kind: 'muted', loading }
+    return { amount: '查询中', kind: 'muted', loading: true }
+  }
+
+  function grokView() {
+    const row = quota.grok
+    if (!row || row.present === false) return null
+    if (row.status === 'logged-out' || row.status === 'unsupported') return null
+    const remaining = grokRemainingPercent(row.usage)
+    const used = grokUsedPercent(row.usage)
+    const loading = quota.status === 'loading'
+    if (remaining === undefined) {
+      if (row.ok === false) return { amount: '查不到', kind: 'error', loading, error: row.error }
+      return null
+    }
+    const kind = remaining <= 5 ? 'alert' : remaining <= 20 ? 'warn' : 'ready'
+    return {
+      amount: `还剩 ${remaining}%`,
+      remaining,
+      used,
+      kind,
+      loading,
+      usage: row.usage,
+    }
+  }
+
+  function quotaSummary() {
+    const parts = []
+    const ds = deepseekView()
+    const gk = grokView()
+    if (ds) parts.push(`DeepSeek ${ds.amount}`)
+    if (gk) parts.push(`Grok ${gk.amount}`)
+    return parts.length ? parts.join(' · ') : '点击查询本机额度'
+  }
+
+  function loadQuota(force) {
+    if (quota.inFlight) return quota.inFlight
+    if (!force && quota.lastFetchAt > 0 && Date.now() - quota.lastFetchAt < QUOTA_DEBOUNCE_MS && quota.status === 'ready') {
+      return Promise.resolve()
+    }
+    const hadSnapshot = quota.status === 'ready'
+    quota.status = 'loading'
+    if (hadSnapshot) renderQuotaIfVisible()
+    quota.inFlight = call('quota.read', force ? { force: true } : {}).then((value) => {
+      quota.inFlight = null
+      quota.lastFetchAt = Date.now()
+      quota.deepseek = value && value.deepseek ? value.deepseek : null
+      quota.grok = value && value.grok ? value.grok : null
+      quota.status = 'ready'
+      renderQuotaIfVisible()
+    }, () => {
+      quota.inFlight = null
+      quota.lastFetchAt = Date.now()
+      quota.status = 'ready'
+      renderQuotaIfVisible()
+    })
+    return quota.inFlight
+  }
+
+  function renderQuotaIfVisible() {
+    if (state.view === 'chat' || state.view === 'workspaces' || state.view === 'sessions' || state.sheet === 'quota') {
+      render()
+    }
+  }
+
+  function openQuotaSheet() {
+    if (state.sheet === 'settings') state.sheetReturn = 'settings'
+    state.sheet = 'quota'
+    render()
+    void loadQuota(true)
+  }
+
+  function closeQuotaSheet() {
+    state.sheet = state.sheetReturn || null
+    state.sheetReturn = null
+    render()
+  }
+
+  function renderQuotaBar() {
+    const ds = deepseekView()
+    const gk = grokView()
+    if (!ds && !gk) return null
+    const chip = (view, label) => el('button', {
+      type: 'button',
+      class: [
+        'chat-quota-chip',
+        view.loading ? 'is-loading' : '',
+        view.kind === 'warn' ? 'is-warn' : '',
+        view.kind === 'alert' || view.kind === 'error' ? 'is-alert' : '',
+      ].filter(Boolean).join(' '),
+      'aria-label': `${label} ${view.amount}，点击查看详情`,
+      onclick: () => openQuotaSheet(),
+    }, [
+      el('span', { class: 'chat-quota-label' }, [label]),
+      el('span', { class: 'chat-quota-value' }, [view.amount]),
+    ])
+    return el('div', { class: 'chat-quota', 'aria-label': '账户额度' }, [
+      ds ? chip(ds, 'DeepSeek') : null,
+      gk ? chip(gk, 'Grok') : null,
+    ])
+  }
+
+  function quotaSheet() {
+    const ds = deepseekView()
+    const gk = grokView()
+    const dsBody = !ds
+      ? el('div', { class: 'quota-section' }, [
+          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['DeepSeek'])]),
+          el('p', { class: 'quota-hint' }, ['未安装余额插件，或本机暂不可查。']),
+        ])
+      : el('div', { class: 'quota-section' }, [
+          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['DeepSeek 余额'])]),
+          el('p', { class: `quota-hero${ds.kind === 'warn' ? ' is-warn' : ds.kind === 'error' ? ' is-error' : ''}` }, [ds.amount]),
+          ds.primary
+            ? el('p', { class: 'quota-meta' }, [
+                `充值 ${formatMoney(ds.primary.currency, ds.primary.toppedUp)} · 赠送 ${formatMoney(ds.primary.currency, ds.primary.granted)}`,
+              ])
+            : null,
+          ds.fetchedAt ? el('p', { class: 'quota-hint' }, [`更新于 ${formatQuotaClock(ds.fetchedAt)}`]) : null,
+          ds.available === false ? el('p', { class: 'quota-error' }, ['账号当前不可用']) : null,
+          ds.error ? el('p', { class: 'quota-error' }, [ds.error]) : null,
+        ])
+    const products = (gk && gk.usage && Array.isArray(gk.usage.windows) ? gk.usage.windows : [])
+      .filter((row) => row.id !== 'SuperGrok' && row.id !== 'weekly')
+    const productLine = products.length
+      ? products.map((row) => `${grokWindowLabel(row.id)} ${row.used}%`).join(' · ')
+      : ''
+    const resetAt = gk && gk.usage && gk.usage.windows && gk.usage.windows[0] && gk.usage.windows[0].resetsAt
+    const gkBody = !gk
+      ? el('div', { class: 'quota-section' }, [
+          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['Grok'])]),
+          el('p', { class: 'quota-hint' }, ['未登录 Grok，或本机暂不可查。']),
+        ])
+      : el('div', { class: 'quota-section' }, [
+          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['Grok 剩余额度'])]),
+          el('p', { class: `quota-hero${gk.kind === 'warn' ? ' is-warn' : gk.kind === 'alert' || gk.kind === 'error' ? ' is-alert' : ''}` }, [gk.amount]),
+          gk.used !== undefined ? el('p', { class: 'quota-meta' }, [`本周已使用 ${gk.used}%`]) : null,
+          productLine ? el('p', { class: 'quota-meta' }, [productLine]) : null,
+          resetAt ? el('p', { class: 'quota-hint' }, [`重置 ${formatQuotaStamp(resetAt)}`]) : null,
+          gk.usage && gk.usage.fetchedAt ? el('p', { class: 'quota-hint' }, [`更新于 ${formatQuotaClock(gk.usage.fetchedAt)}`]) : null,
+          gk.error ? el('p', { class: 'quota-error' }, [gk.error]) : null,
+        ])
+    return el('div', { class: 'sheet-backdrop', onclick: () => closeQuotaSheet() }, [
+      el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '账户额度', onclick: (ev) => { ev.stopPropagation() } }, [
+        el('div', { class: 'sheet-handle' }),
+        el('div', { class: 'sheet-title quota-sheet-title' }, [
+          el('span', null, ['账户额度']),
+          el('button', {
+            type: 'button',
+            class: 'quota-refresh',
+            disabled: quota.status === 'loading',
+            onclick: () => { void loadQuota(true) },
+          }, [quota.status === 'loading' ? '刷新中…' : '刷新']),
+        ]),
+        el('div', { class: 'sheet-body' }, [dsBody, gkBody]),
+      ]),
+    ])
+  }
+
   /* ── pairing (ported from mobile/pairing.ts, /mp flavor) ───────────── */
 
   function parsePairInput(value) {
     const trimmed = (value || '').trim()
     if (trimmed === '') return undefined
     try {
-      const url = new URL(trimmed)
+      const url = new URL(trimmed, window.location.origin)
       const token = url.searchParams.get('pair')
-      if (token === null || token === '') return undefined
-      return token
+      if (token) return token
     } catch {
-      return trimmed
+      /* raw token or relative query */
     }
+    if (/^[a-f0-9]{32}$/i.test(trimmed)) return trimmed
+    return undefined
   }
 
   async function acceptPair(token) {
@@ -1563,6 +2145,11 @@
       this.snapshotList = snapshotOf(this.state)
       return this.snapshotList
     }
+
+    /** Highest applied seq; used to poll only events newer than the live fold. */
+    maxSeq() {
+      return this.state.maxSeq
+    }
   }
 
   /** Fold a batch of session events into a renderable message list. */
@@ -1612,6 +2199,16 @@
       this.lastDataAt = this.now()
       if (this.source === undefined) this.connect()
       this.startTick()
+    }
+
+    /** iOS kills EventSource in the background; reconnect and poll on foreground. */
+    wake() {
+      if (this.stopped) return
+      this.closeSource()
+      this.sseAlive = false
+      this.lastDataAt = 0
+      this.connect()
+      if (this.observeSessionId !== undefined) this.startPolling()
     }
 
     /** Close for good. */
@@ -1713,6 +2310,26 @@
     }
 
     /**
+     * Force a history poll now. After session.prompt, a lagged SSE (phone
+     * relay / proxy buffering) would otherwise wait for the 12s stall window
+     * before the echoed user message appears. Seq watermarks keep this
+     * idempotent if SSE later delivers the same events.
+     */
+    nudge(sessionId, minSeq) {
+      if (this.stopped) return
+      if (sessionId !== undefined && this.observeSessionId !== sessionId) return
+      if (this.observeSessionId === undefined) return
+      if (typeof minSeq === 'number') {
+        const prev = this.pollWatermark.get(this.observeSessionId) ?? -1
+        if (minSeq > prev) this.pollWatermark.set(this.observeSessionId, minSeq)
+      }
+      this.pollDelayMs = this.pollIntervalMs
+      this.polling = true
+      this.nextPollAt = Number.POSITIVE_INFINITY
+      void this.pollTick()
+    }
+
+    /**
      * Fetch the latest history page for the observed session and re-emit any
      * event above the per-session watermark as a `session/event` frame.
      * Idempotent by seq: listeners (and the fold) never see a duplicate.
@@ -1741,6 +2358,22 @@
           this.emit({ type: 'session/event', sessionId, event: ev })
         }
         this.pollWatermark.set(sessionId, maxSeq)
+        // History tail carries the title projection even when the session/title
+        // event itself has scrolled out of the page window.
+        const projectedTitle = page.projections?.values?.title
+        if (typeof projectedTitle === 'string' && projectedTitle.trim()) {
+          this.emit({
+            type: 'session/projection',
+            sessionId,
+            key: 'title',
+            value: projectedTitle,
+            seq: typeof page.projections.asOfSeq === 'number' ? page.projections.asOfSeq : maxSeq,
+          })
+        }
+        // Todos ride turn/start + todo/write events (standing-plan lifetime).
+        // Do not re-emit the history-tail projection here: its asOfSeq is the
+        // log head, which would stamp an unchanged list with a high seq and
+        // clobber a newer live todo_write / optimistic tool/call.
       } catch {
         // Transient (network, pairing, history paging); retry with backoff.
       } finally {
@@ -1761,20 +2394,8 @@
      * drop unknown frame shapes so a newer host never breaks this client.
      */
     handleMessage(data) {
-      if (typeof data !== 'string' || data === '') return
-      let parsed
-      try {
-        parsed = JSON.parse(data)
-      } catch {
-        return
-      }
-      if (!isRecord(parsed)) return
-      let frame = parsed
-      if (parsed.type === 'server-request' && isRecord(parsed.payload)) {
-        frame = parsed.payload
-        if (typeof parsed.rpcId === 'string' && frame.rpcId === undefined) frame = { ...frame, rpcId: parsed.rpcId }
-      }
-      if (!isRecord(frame) || typeof frame.type !== 'string') return
+      const frame = parseLiveFrame(data)
+      if (!frame) return
       // A delivered frame proves the SSE channel is live (the tunnel forwards
       // it) and delivers again — drop any fallback polling so the live stream
       // takes over without double delivery.
@@ -1809,12 +2430,176 @@
     }
   }
 
+  /**
+   * Accept raw mux/host SSE payloads and older server-request envelopes.
+   * Shared by MuxClient and HostClient so a newer host never breaks either.
+   */
+  function parseLiveFrame(data) {
+    if (typeof data !== 'string' || data === '') return null
+    let parsed
+    try {
+      parsed = JSON.parse(data)
+    } catch {
+      return null
+    }
+    if (!isRecord(parsed)) return null
+    let frame = parsed
+    if (parsed.type === 'server-request' && isRecord(parsed.payload)) {
+      frame = parsed.payload
+      if (typeof parsed.rpcId === 'string' && frame.rpcId === undefined) frame = { ...frame, rpcId: parsed.rpcId }
+    }
+    if (!isRecord(frame) || typeof frame.type !== 'string') return null
+    return frame
+  }
+
+  /**
+   * Web sidebar running-dots come from `/api/events.host` (`host/session-status`),
+   * not from mux turn/start|end. Phone must subscribe to the same stream.
+   */
+  class HostClient {
+    constructor(url, options = {}) {
+      this.url = url ?? '/mp/api/events.host'
+      this.sourceFactory = options.sourceFactory ?? ((u) => new EventSource(u))
+      this.listeners = new Set()
+      this.source = undefined
+      this.stopped = false
+    }
+
+    start() {
+      this.stopped = false
+      if (this.source === undefined) this.connect()
+    }
+
+    stop() {
+      this.stopped = true
+      this.closeSource()
+    }
+
+    onFrame(listener) {
+      this.listeners.add(listener)
+      return () => { this.listeners.delete(listener) }
+    }
+
+    wake() {
+      if (this.stopped) return
+      this.closeSource()
+      this.connect()
+    }
+
+    connect() {
+      const source = this.sourceFactory(this.url)
+      this.source = source
+      source.onmessage = (event) => {
+        const frame = parseLiveFrame(event.data)
+        if (!frame) return
+        this.emit(frame)
+      }
+      source.onerror = () => {
+        if (this.stopped && this.source === source) this.closeSource()
+      }
+    }
+
+    emit(frame) {
+      for (const listener of this.listeners) {
+        try {
+          listener(frame)
+        } catch {
+          // A throwing subscriber must not break the emit loop.
+        }
+      }
+    }
+
+    closeSource() {
+      const source = this.source
+      this.source = undefined
+      if (source !== undefined) {
+        source.onmessage = null
+        source.onerror = null
+        try {
+          source.close()
+        } catch {
+          // Already closed.
+        }
+      }
+    }
+  }
+
   function sessionTitle(item) {
     const fromProj = item.projections?.values?.title
-    if (typeof fromProj === 'string' && fromProj.trim()) return fromProj
+    if (typeof fromProj === 'string' && fromProj.trim()) return fromProj.trim()
     if (item.title && !String(item.title).startsWith('session-') && item.title !== item.sessionId) return item.title
+    // Blank new chats have a cwd (the workspace path). Don't show that folder
+    // name in the header / list — wait for the host title projection.
+    if (item.blank) return '新会话'
     if (item.cwd) return basename(item.cwd)
     return '新会话'
+  }
+
+  /** Per-session seq watermark for title projections (higher-seq-wins). */
+  const titleWatermark = new Map()
+
+  function titleText(value) {
+    return typeof value === 'string' ? value.trim() : ''
+  }
+
+  function withSessionTitle(item, title) {
+    if (item.projections?.values?.title === title && item.title === title) return item
+    const values = { ...(item.projections?.values || {}), title }
+    const projections = item.projections && typeof item.projections === 'object'
+      ? { ...item.projections, values }
+      : { values }
+    return { ...item, title, projections }
+  }
+
+  /**
+   * Apply a host-generated (or user-renamed) session title onto the open chat
+   * and the in-memory list row. Empty values are ignored so a stale history
+   * snapshot cannot wipe a live title that arrived during loadTail.
+   */
+  function applySessionTitle(sessionId, value, seq) {
+    const title = titleText(value)
+    if (!title) return false
+    if (typeof seq === 'number') {
+      const prev = titleWatermark.get(sessionId)
+      if (prev !== undefined && seq <= prev) return false
+      titleWatermark.set(sessionId, seq)
+    }
+    let changed = false
+    if (state.session?.sessionId === sessionId) {
+      const next = withSessionTitle(state.session, title)
+      if (next !== state.session) {
+        state.session = next
+        changed = true
+      }
+    }
+    const index = state.sessions.findIndex((row) => row.sessionId === sessionId)
+    if (index >= 0) {
+      const next = withSessionTitle(state.sessions[index], title)
+      if (next !== state.sessions[index]) {
+        const sessions = state.sessions.slice()
+        sessions[index] = next
+        state.sessions = sessions
+        changed = true
+      }
+    }
+    return changed
+  }
+
+  function seedSessionTitleFromPage(sessionId, page) {
+    const projected = titleText(page?.projections?.values?.title)
+    if (projected) {
+      const seq = typeof page.projections?.asOfSeq === 'number' ? page.projections.asOfSeq : undefined
+      return applySessionTitle(sessionId, projected, seq)
+    }
+    const events = page?.events || []
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const ev = toWireEvent(events[i])
+      if (ev?.type !== 'session/title') continue
+      const data = isRecord(ev.data) ? ev.data : {}
+      const seq = typeof ev.seq === 'number' ? ev.seq : undefined
+      if (applySessionTitle(sessionId, data.title, seq)) return true
+    }
+    return false
   }
 
   /* ── data loading ──────────────────────────────────────────────────── */
@@ -1843,9 +2628,9 @@
     return new Set((workspace && workspace.sessionIds) || [])
   }
 
-  function applySessionPage(items, owned) {
+  function applySessionPage(items, owned, listedAt = 0) {
     const rows = (items || []).filter((s) => owned.has(s.sessionId))
-    for (const s of rows) hydrateSessionLive(s)
+    for (const s of rows) hydrateSessionLive(s, listedAt)
     return rows
   }
 
@@ -1854,7 +2639,7 @@
    * Covers two hosts: workspace-scoped pagination (one call) and the old
    * global 20-at-a-time list (keep walking past empty owned pages).
    */
-  async function collectOwnedPages(workspaceId, owned, startCursor, already) {
+  async function collectOwnedPages(workspaceId, owned, startCursor, already, listedAt = Date.now()) {
     if (owned.size === 0) return { items: already.slice(), nextCursor: undefined, hasMore: false }
     const items = already.slice()
     const seen = new Set(items.map((s) => s.sessionId))
@@ -1867,7 +2652,7 @@
         ...(cursor ? { cursor } : {}),
         ...(workspaceId ? { workspaceId } : {}),
       })
-      const extra = applySessionPage(page.items, owned)
+      const extra = applySessionPage(page.items, owned, listedAt)
       for (const row of extra) {
         if (seen.has(row.sessionId)) continue
         seen.add(row.sessionId)
@@ -1885,9 +2670,12 @@
     return { items, nextCursor: hasMore ? cursor : undefined, hasMore }
   }
 
-  async function openWorkspace(ws) {
+  async function openWorkspace(ws, opts = {}) {
+    chatQuery += 1
+    stopMuxObservation()
     state.workspace = ws
     state.view = 'sessions'
+    state.session = null
     state.sessions = []
     state.cursor = undefined
     state.hasMoreSessions = false
@@ -1895,12 +2683,16 @@
     state.createError = ''
     state.loading = true
     listScroll.top = 0
+    const mode = opts.locationMode || 'push'
+    if (mode !== 'none') commitLocation({ view: 'sessions', workspaceId: ws.workspaceId }, mode)
+    else persistRoute({ view: 'sessions', workspaceId: ws.workspaceId })
     render()
     await loadSessions()
   }
 
   async function loadSessions() {
     const q = ++sessionsQuery
+    const listedAt = Date.now()
     const workspaceId = state.workspace && state.workspace.workspaceId
     const initial = state.sessions.length === 0
     if (initial) {
@@ -1913,7 +2705,7 @@
       const fresh = (workspaces.items || []).find((w) => w.workspaceId === workspaceId)
       const current = fresh || state.workspace
       state.workspace = current
-      const page = await collectOwnedPages(workspaceId, ownedSessionIds(current), undefined, [])
+      const page = await collectOwnedPages(workspaceId, ownedSessionIds(current), undefined, [], listedAt)
       if (q !== sessionsQuery) return
       state.sessions = page.items
       state.cursor = page.nextCursor
@@ -1930,6 +2722,99 @@
     }
   }
 
+  function sessionStatusKey(items) {
+    return (items || []).map((s) => {
+      const row = sessionLive.get(s.sessionId)
+      return `${s.sessionId}:${row?.running ? 1 : 0}:${s.updatedAt || 0}:${s.title || ''}`
+    }).join('|')
+  }
+
+  function mergeSessionsFromSnapshot(items) {
+    const byId = new Map((items || []).map((s) => [s.sessionId, s]))
+    let changed = false
+    const next = state.sessions.map((row) => {
+      const fresh = byId.get(row.sessionId)
+      if (!fresh) return row
+      byId.delete(row.sessionId)
+      if (row.running === fresh.running && row.updatedAt === fresh.updatedAt && row.title === fresh.title && row.blank === fresh.blank) return row
+      changed = true
+      return { ...row, ...fresh }
+    })
+    const newcomers = [...byId.values()]
+    if (newcomers.length > 0) {
+      changed = true
+      next.push(...newcomers)
+      next.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    }
+    if (changed) state.sessions = next
+    return changed
+  }
+
+  /**
+   * Reconcile session running bits against session.list. Host SSE is the
+   * fast path; this is the phone-relay / background-kill fallback so a
+   * finished PC turn cannot stay spinning on the list forever.
+   */
+  async function refreshLiveSnapshot() {
+    if (state.view === 'boot' || state.view === 'pair' || state.view === 'error') return false
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false
+    const token = ++liveQuery
+    const listedAt = Date.now()
+    try {
+      const workspaces = await call('workspace.list', {})
+      if (token !== liveQuery) return false
+      const workspaceItems = workspaces.items || []
+      if (state.view === 'workspaces') {
+        const same = workspaceItems.length === state.workspaces.length
+          && workspaceItems.every((w, i) => w.workspaceId === state.workspaces[i]?.workspaceId && w.title === state.workspaces[i]?.title)
+        state.workspaces = workspaceItems
+        if (!same) render()
+        return !same
+      }
+      if (!state.workspace) return false
+      const workspaceId = state.workspace.workspaceId
+      const fresh = workspaceItems.find((w) => w.workspaceId === workspaceId)
+      if (fresh) state.workspace = fresh
+      const before = sessionStatusKey(state.sessions)
+      const page = await collectOwnedPages(workspaceId, ownedSessionIds(state.workspace), undefined, [], listedAt)
+      if (token !== liveQuery) return false
+      if (state.view === 'sessions') mergeSessionsFromSnapshot(page.items)
+      else {
+        for (const item of page.items) hydrateSessionLive(item, listedAt)
+      }
+      let changed = before !== sessionStatusKey(state.view === 'sessions' ? state.sessions : page.items)
+      if (state.view === 'chat' && state.session) {
+        const row = sessionLive.get(state.session.sessionId)
+        const next = row ? row.running === true : false
+        if (state.running !== next) {
+          state.running = next
+          changed = true
+        }
+      }
+      if (changed && (state.view === 'sessions' || state.view === 'chat')) render()
+      return changed
+    } catch {
+      return false
+    }
+  }
+
+  const LIST_POLL_MS = 4000
+
+  function startListPoll() {
+    if (listPollTimer !== null) return
+    listPollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      void refreshLiveSnapshot()
+    }, LIST_POLL_MS)
+  }
+
+  function stopListPoll() {
+    if (listPollTimer !== null) {
+      clearInterval(listPollTimer)
+      listPollTimer = null
+    }
+  }
+
   async function loadMoreSessions() {
     if (!state.cursor || state.loadingMore) return
     const q = sessionsQuery
@@ -1942,6 +2827,7 @@
         ownedSessionIds(state.workspace),
         state.cursor,
         [],
+        Date.now(),
       )
       if (q !== sessionsQuery) return
       const seen = new Set(state.sessions.map((s) => s.sessionId))
@@ -1969,6 +2855,12 @@
         workspaceId: state.workspace.workspaceId,
         ...(state.presetId ? { agentPreset: state.presetId } : {}),
       })
+      if (state.workspace && created && created.sessionId) {
+        const ids = Array.isArray(state.workspace.sessionIds) ? state.workspace.sessionIds : []
+        if (!ids.includes(created.sessionId)) {
+          state.workspace.sessionIds = [created.sessionId].concat(ids)
+        }
+      }
       state.creating = false
       await openChat({ sessionId: created.sessionId, title: '新会话' })
     } catch (err) {
@@ -1987,6 +2879,8 @@
    * the snapshot, and then be skipped forever by the seq watermark.
    */
   async function loadTail() {
+    const sid = state.session && state.session.sessionId
+    if (!sid) return
     chat.loading = true
     chat.tailLoading = true
     chat.liveBuffer = []
@@ -1995,7 +2889,8 @@
     chat.messages = []
     render()
     try {
-      const page = await call('session.history', { sessionId: state.session.sessionId, maxMessages: 30 })
+      const page = await call('session.history', { sessionId: sid, maxMessages: 30 })
+      if (state.session?.sessionId !== sid) return
       // Buffered live events re-fold on top of the snapshot; the watermark
       // drops any the snapshot already includes, so nothing is lost or doubled.
       const buffered = chat.liveBuffer
@@ -2005,8 +2900,9 @@
       chat.folder = folder
       chat.messages = folder.fold(buffered)
       chat.hasOlder = Boolean(page.hasMore)
-      const projected = todosFromProjections(page) ?? todosFromEvents(page.events)
-      chat.todos = projected ?? standingTodos()
+      seedTodosFromPage(sid, page, buffered)
+      seedSessionTitleFromPage(sid, page)
+      reconcileOutbox(sid)
       state.error = ''
       // The buffer overflowed while waiting (oldest events were dropped), so
       // re-pull the freshest history page to close the gap on top of what is
@@ -2015,19 +2911,27 @@
       if (chat.overflow) {
         chat.overflow = false
         try {
-          const fresh = await call('session.history', { sessionId: state.session.sessionId, maxMessages: 30 })
+          const fresh = await call('session.history', { sessionId: sid, maxMessages: 30 })
+          if (state.session?.sessionId !== sid) return
           chat.messages = folder.fold((fresh.events || []).map(toWireEvent))
+          seedTodosFromPage(sid, fresh)
+          seedSessionTitleFromPage(sid, fresh)
+          reconcileOutbox(sid)
         } catch { /* best-effort */ }
       }
     } catch (err) {
+      if (state.session?.sessionId !== sid) return
       // Load failed: flush the buffer so the live stream still renders.
       const buffered = chat.liveBuffer
       chat.liveBuffer = []
       chat.tailLoading = false
       if (chat.folder === null) chat.folder = new EventFolder()
       if (buffered.length > 0) chat.messages = chat.folder.fold(buffered)
+      chat.todos = applyTodoEventsAfter([], buffered)
+      reconcileOutbox(sid)
       state.error = String(err.message || err)
     } finally {
+      if (state.session?.sessionId !== sid) return
       chat.loading = false
       render()
     }
@@ -2060,38 +2964,156 @@
     }
   }
 
-  async function openChat(session) {
+  async function openChat(session, opts = {}) {
+    const q = ++chatQuery
     state.session = session
     state.view = 'chat'
     state.draft = ''
     state.images = []
     state.sending = false
-    state.running = false
     lastMsgScrollKey = null
     chatScroll.stick = true
     chatScroll.top = 0
     chatScroll.restoring = false
     todoScroll.top = 0
     todoScroll.stick = true
+    todoWatermark.delete(session.sessionId)
     chat.todos = null
     chat.approvals = []
     chat.questions = []
     const live = ensureLive(session.sessionId)
     live.completed = false
+    state.running = live.running === true || session.running === true
+    const mode = opts.locationMode || 'push'
+    if (state.workspace && state.workspace.workspaceId) {
+      const loc = { view: 'chat', workspaceId: state.workspace.workspaceId, sessionId: session.sessionId }
+      if (mode !== 'none') commitLocation(loc, mode)
+      else persistRoute(loc)
+    }
     render()
+    if (q !== chatQuery) return
     await ensureMux()
+    if (q !== chatQuery) return
     mux.observe(session.sessionId)
-    // Best-effort current model for the toolbar chip (the sheet re-reads the
+    // Best-effort current model for the settings row (the sheet re-reads the
     // directory on every open) — old-plugin parity.
     void call('session.models', { sessionId: session.sessionId }).then((data) => {
+      if (q !== chatQuery) return
       chat.currentModel = data.current
       if (state.view === 'chat') render()
-    }).catch(() => { /* chip falls back to a plain label */ })
+    }).catch(() => { /* settings row falls back to a plain label */ })
     void loadSlashCatalog(session.sessionId)
     startPendingPoll()
     // loadTail 内部完成时会 render（贴底 rAF 指向它构建的 scroller）；
     // 这里不能再 render 一次——那会让上一个 rAF 失效并恢复 prevTop=0（Bug #1042）
     await loadTail()
+  }
+
+  function showWorkspaces(locationMode = 'push') {
+    chatQuery += 1
+    stopMuxObservation()
+    state.view = 'workspaces'
+    state.workspace = null
+    state.session = null
+    state.loading = false
+    if (locationMode !== 'none') commitLocation({ view: 'workspaces' }, locationMode)
+    else persistRoute({ view: 'workspaces' })
+    render()
+  }
+
+  function showSessionsFromChat(ws, locationMode) {
+    chatQuery += 1
+    stopMuxObservation()
+    state.workspace = ws
+    state.session = null
+    state.view = 'sessions'
+    state.loading = false
+    const loc = { view: 'sessions', workspaceId: ws.workspaceId }
+    if (locationMode !== 'none') commitLocation(loc, locationMode)
+    else persistRoute(loc)
+    render()
+    void loadSessions()
+  }
+
+  function enterDir(locationMode = 'push') {
+    state.dir = null
+    state.dirError = ''
+    state.view = 'dir'
+    if (locationMode !== 'none') commitLocation({ view: 'dir' }, locationMode)
+    else persistRoute({ view: 'dir' })
+    render()
+    void openDir()
+  }
+
+  async function applyRoute(route, opts = {}) {
+    const gen = ++routeGen
+    const locationMode = locationModeFor(opts)
+    const still = () => gen === routeGen
+
+    if (!route || route.view === 'workspaces' || (route.view !== 'dir' && route.view !== 'sessions' && route.view !== 'chat')) {
+      showWorkspaces(locationMode)
+      return
+    }
+
+    if (route.view === 'dir') {
+      if (state.view === 'dir') {
+        if (locationMode !== 'none') commitLocation({ view: 'dir' }, locationMode)
+        else persistRoute({ view: 'dir' })
+        return
+      }
+      enterDir(locationMode)
+      return
+    }
+
+    const ws = (state.workspaces || []).find((item) => item.workspaceId === route.workspaceId)
+    if (!ws) {
+      showWorkspaces('replace')
+      return
+    }
+
+    if (route.view === 'sessions' || !route.sessionId) {
+      if (state.view === 'chat' && state.workspace?.workspaceId === ws.workspaceId) {
+        showSessionsFromChat(ws, locationMode)
+        return
+      }
+      if (state.view === 'sessions' && state.workspace?.workspaceId === ws.workspaceId) {
+        if (locationMode !== 'none') commitLocation({ view: 'sessions', workspaceId: ws.workspaceId }, locationMode)
+        else persistRoute({ view: 'sessions', workspaceId: ws.workspaceId })
+        return
+      }
+      await openWorkspace(ws, { locationMode })
+      return
+    }
+
+    if (state.view === 'chat' && state.session?.sessionId === route.sessionId && state.workspace?.workspaceId === ws.workspaceId) {
+      if (locationMode !== 'none') commitLocation(route, locationMode)
+      else persistRoute(route)
+      return
+    }
+
+    const owned = ownedSessionIds(ws)
+    if (owned.size > 0 && !owned.has(route.sessionId)) {
+      if (!still()) return
+      await applyRoute({ view: 'sessions', workspaceId: ws.workspaceId }, { replace: true })
+      return
+    }
+
+    state.workspace = ws
+    const listed = (state.sessions || []).find((item) => item.sessionId === route.sessionId)
+    await openChat(listed || { sessionId: route.sessionId }, { locationMode })
+  }
+
+  async function restoreRoute() {
+    const parsed = parseRoute(window.location.hash)
+    const route = parsed.empty ? (readPersistedRoute() || { view: 'workspaces' }) : parsed
+    await applyRoute(route, { replace: true })
+    // Refresh replaces this history entry; parents on the stack may not be
+    // ours. Zero depth so the in-app back button cannot history.back() off /mp/.
+    if (history.state && history.state.mp) {
+      ignoringPop = true
+      try { history.replaceState({ ...history.state, mpDepth: 0 }, '', window.location.href) } catch { /* ignore */ }
+      ignoringPop = false
+    }
   }
 
   /* ── live mux (ported from the old plugin's mobile/mux.ts) ──────────── */
@@ -2103,6 +3125,13 @@
     })
     mux.onFrame(handleMuxFrame)
     mux.start()
+  }
+
+  async function ensureHost() {
+    if (host !== null) return
+    host = new HostClient('/mp/api/events.host')
+    host.onFrame(handleMuxFrame)
+    host.start()
   }
 
   function applyPendingFrame(frame) {
@@ -2205,6 +3234,24 @@
     if (!node) return
     node.style.height = 'auto'
     node.style.height = `${Math.min(node.scrollHeight, 120)}px`
+  }
+
+  /**
+   * Phone software keyboards emit Enter without Shift for the 换行 key.
+   * Treating that as send makes it impossible to insert a newline.
+   * Desktop (fine pointer + hover) keeps Enter-to-send / Shift+Enter newline.
+   */
+  function composerReturnIsNewline() {
+    const ua = navigator.userAgent || ''
+    if (/iPhone|iPod|Android.+Mobile/i.test(ua)) return true
+    if (/iPad/i.test(ua)) return true
+    if (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1) return true
+    try {
+      if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) return true
+    } catch {
+      /* ignore */
+    }
+    return false
   }
 
   function renderApprovalPanel(approval) {
@@ -2344,18 +3391,67 @@
     const pendingChanged = applyPendingFrame(frame)
     if (pendingChanged && state.view === 'chat') render()
     const statusChanged = applySessionLive(frame)
-    if (frame?.type === 'session/projection' && frame.sessionId === state.session?.sessionId && frame.key === 'todos') {
-      chat.todos = normalizeTodos(frame.value) ?? []
-      if (state.view === 'chat') render()
+    if (frame?.type === 'host/session-status' && typeof frame.sessionId === 'string') {
+      if (frame.sessionId === state.session?.sessionId) {
+        const next = frame.running === true
+        if (state.running !== next) {
+          state.running = next
+          if (next === false) void loadQuota(true)
+          if (state.view === 'chat') render()
+        }
+      }
+      if (statusChanged && state.view === 'sessions') render()
+      return
+    }
+    if (frame && typeof frame.type === 'string' && frame.type.startsWith('host/')) {
+      if (
+        frame.type === 'host/session-added'
+        || frame.type === 'host/session-removed'
+        || frame.type === 'host/workspace-changed'
+        || frame.type === 'host/workspace-removed'
+        || frame.type === 'host/workspace-order-changed'
+      ) {
+        void refreshLiveSnapshot()
+      }
+      return
+    }
+    if (frame?.type === 'session/projection' && typeof frame.sessionId === 'string') {
+      if (frame.key === 'title') {
+        if (applySessionTitle(frame.sessionId, frame.value, frame.seq) && (state.view === 'chat' || state.view === 'sessions')) {
+          render()
+        }
+        return
+      }
+      if (frame.key === 'todos') {
+        if (applyTodosProjection(frame.sessionId, frame.value, frame.seq) && state.view === 'chat') {
+          render()
+        }
+        return
+      }
+    }
+    if (frame?.type === 'session/event' && typeof frame.sessionId === 'string' && frame.event?.type === 'session/title') {
+      const data = isRecord(frame.event.data) ? frame.event.data : {}
+      if (applySessionTitle(frame.sessionId, data.title, frame.event.seq) && (state.view === 'chat' || state.view === 'sessions')) {
+        render()
+      }
       return
     }
     if (statusChanged && state.view === 'sessions') render()
-    if (frame?.type !== 'session/event' || frame.sessionId !== state.session?.sessionId) return
+    if (frame?.type !== 'session/event' || typeof frame.sessionId !== 'string') return
     const ev = frame.event
     if (!ev || typeof ev.type !== 'string') return
+    if (frame.sessionId !== state.session?.sessionId) {
+      // Keep the local bubble until the open chat can fold the echo; other
+      // sessions can drop the matching outbox row immediately.
+      if (ev.type === 'user/message' && dropOutboxEcho(frame.sessionId, ev) && state.view === 'chat') render()
+      return
+    }
     const turnMarker = ev.type === 'turn/start' || ev.type === 'turn/end'
     if (ev.type === 'turn/start') state.running = true
-    if (ev.type === 'turn/end') state.running = false
+    if (ev.type === 'turn/end') {
+      state.running = false
+      void loadQuota(true)
+    }
     if (chat.tailLoading) {
       if (chat.liveBuffer.length >= 500) {
         chat.liveBuffer.shift()
@@ -2366,28 +3462,11 @@
     }
     if (!chat.folder) return
     const next = chat.folder.fold([ev])
-    let todosChanged = false
-    if (ev.type === 'todo/write') {
-      const data = isRecord(ev.data) ? ev.data : {}
-      const parsed = parseTodos(data.todos ?? data)
-      if (parsed) {
-        chat.todos = parsed
-        todosChanged = true
-      }
-    } else if (ev.type === 'tool/call') {
-      const data = isRecord(ev.data) ? ev.data : {}
-      if (pickString(data.name) === 'todo_write') {
-        const parsed = parseTodos(pickArgs(data.arguments))
-        if (parsed) {
-          chat.todos = parsed
-          todosChanged = true
-        }
-      }
-    }
-    if (next !== chat.messages || turnMarker || todosChanged) {
-      chat.messages = next
-      render()
-    }
+    const todosChanged = applyTodosLiveEvent(frame.sessionId, ev)
+    const messagesChanged = next !== chat.messages
+    if (messagesChanged) chat.messages = next
+    const outboxChanged = ev.type === 'user/message' && reconcileOutbox(frame.sessionId)
+    if (messagesChanged || turnMarker || todosChanged || outboxChanged) render()
   }
 
   function stopMuxObservation() {
@@ -2452,6 +3531,272 @@
     }
     state.images = next
     ev.target.value = ''
+    render()
+  }
+
+  /* ── image lightbox (pending composer + sent chat thumbs) ─────────────
+   * The page viewport is user-scalable=no, so native pinch-zoom cannot
+   * enlarge a 56px thumb. This overlay lives on document.body (outside
+   * #root) so live chat re-renders do not reset the zoom transform.
+   * Pending pics use the 1600px fullData; history only has 320px thumbs. */
+
+  let lightboxNode = null
+  let lightboxEsc = null
+  let lightboxCleanup = null
+
+  function composerSrc(img) {
+    if (img && typeof img.fullData === 'string' && img.fullData !== '') {
+      return `data:${img.mediaType || 'image/jpeg'};base64,${img.fullData}`
+    }
+    return img && img.preview ? img.preview : ''
+  }
+
+  function closeImageLightbox() {
+    if (lightboxCleanup) {
+      lightboxCleanup()
+      lightboxCleanup = null
+    }
+    if (lightboxEsc) {
+      document.removeEventListener('keydown', lightboxEsc)
+      lightboxEsc = null
+    }
+    if (lightboxNode) {
+      lightboxNode.remove()
+      lightboxNode = null
+    }
+  }
+
+  function openImageLightbox(src) {
+    if (!src) return
+    closeImageLightbox()
+
+    const img = el('img', { class: 'img-lightbox-img', src, alt: '图片预览' })
+    img.draggable = false
+    const stage = el('div', { class: 'img-lightbox-stage' }, [img])
+    const closeBtn = el('button', {
+      type: 'button',
+      class: 'img-lightbox-close',
+      'aria-label': '关闭预览',
+    }, ['×'])
+    const hint = el('div', { class: 'img-lightbox-hint' }, ['点一下关闭 · 双击或捏合放大'])
+    const node = el('div', {
+      class: 'img-lightbox',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': '图片预览',
+    }, [stage, closeBtn, hint])
+    node.dataset.src = src
+    closeBtn.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      closeImageLightbox()
+    })
+    node.addEventListener('touchmove', (ev) => { ev.preventDefault() }, { passive: false })
+    attachLightboxZoom(stage, img)
+    lightboxEsc = (ev) => { if (ev.key === 'Escape') closeImageLightbox() }
+    document.addEventListener('keydown', lightboxEsc)
+    lightboxNode = node
+    document.body.append(node)
+  }
+
+  function attachLightboxZoom(stage, img) {
+    let scale = 1
+    let x = 0
+    let y = 0
+    let pan = null
+    let pinch0 = null
+    let lastTapAt = 0
+    let lastTapX = 0
+    let lastTapY = 0
+    let moved = false
+    let closeTimer = 0
+    let mouseDown = false
+    let ignoreMouseUntil = 0
+
+    const cancelCloseTimer = () => {
+      if (closeTimer) {
+        clearTimeout(closeTimer)
+        closeTimer = 0
+      }
+    }
+
+    img.style.transformOrigin = '0 0'
+    const apply = () => {
+      img.style.transform = `translate(${x}px, ${y}px) scale(${scale})`
+    }
+
+    const zoomAt = (cx, cy, next) => {
+      next = Math.min(5, Math.max(1, next))
+      if (next === scale) return
+      const rect = img.getBoundingClientRect()
+      const prev = scale || 1
+      x += ((cx - rect.left) / prev) * (prev - next)
+      y += ((cy - rect.top) / prev) * (prev - next)
+      scale = next
+      if (scale === 1) {
+        x = 0
+        y = 0
+      }
+    }
+
+    const endGesture = (clientX, clientY, target) => {
+      pinch0 = null
+      pan = null
+      mouseDown = false
+      if (scale < 1.02) {
+        scale = 1
+        x = 0
+        y = 0
+        apply()
+      }
+      if (moved) {
+        lastTapAt = 0
+        return
+      }
+      const now = Date.now()
+      const isDouble = now - lastTapAt < 300 && Math.hypot(clientX - lastTapX, clientY - lastTapY) < 28
+      if (isDouble) {
+        lastTapAt = 0
+        cancelCloseTimer()
+        if (scale > 1.05) {
+          scale = 1
+          x = 0
+          y = 0
+        } else {
+          zoomAt(clientX, clientY, 2.6)
+        }
+        apply()
+        return
+      }
+      lastTapAt = now
+      lastTapX = clientX
+      lastTapY = clientY
+      if (scale > 1.05) {
+        if (target !== img) {
+          scale = 1
+          x = 0
+          y = 0
+          apply()
+        }
+        return
+      }
+      /* Full-bleed screenshots leave no blank margin; delay so a double-tap
+         can still zoom, then close on a single tap anywhere. */
+      closeTimer = setTimeout(() => {
+        closeTimer = 0
+        if (lastTapAt === now) closeImageLightbox()
+      }, 320)
+    }
+
+    const onTouchStart = (ev) => {
+      ignoreMouseUntil = Date.now() + 700
+      cancelCloseTimer()
+      if (ev.touches.length === 1) {
+        moved = false
+        pan = { x: ev.touches[0].clientX, y: ev.touches[0].clientY, ox: x, oy: y }
+        pinch0 = null
+      } else if (ev.touches.length >= 2) {
+        const a = ev.touches[0]
+        const b = ev.touches[1]
+        pinch0 = { dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), scale }
+        pan = null
+        moved = true
+      }
+    }
+
+    const onTouchMove = (ev) => {
+      ev.preventDefault()
+      if (ev.touches.length >= 2 && pinch0 && pinch0.dist > 0) {
+        const a = ev.touches[0]
+        const b = ev.touches[1]
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+        zoomAt((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2, pinch0.scale * (dist / pinch0.dist))
+        apply()
+        return
+      }
+      if (ev.touches.length === 1 && pan) {
+        const dx = ev.touches[0].clientX - pan.x
+        const dy = ev.touches[0].clientY - pan.y
+        if (Math.hypot(dx, dy) > 6) moved = true
+        if (scale > 1) {
+          x = pan.ox + dx
+          y = pan.oy + dy
+          apply()
+        }
+      }
+    }
+
+    const onTouchEnd = (ev) => {
+      ignoreMouseUntil = Date.now() + 700
+      if (ev.touches.length >= 2) return
+      if (ev.touches.length === 1) {
+        const t = ev.touches[0]
+        pan = { x: t.clientX, y: t.clientY, ox: x, oy: y }
+        pinch0 = null
+        return
+      }
+      const t = ev.changedTouches[0]
+      endGesture(t.clientX, t.clientY, ev.target)
+    }
+
+    const onTouchCancel = (ev) => {
+      ignoreMouseUntil = Date.now() + 700
+      moved = true
+      const t = ev.changedTouches[0]
+      endGesture(t ? t.clientX : 0, t ? t.clientY : 0, ev.target)
+    }
+
+    const onMouseDown = (ev) => {
+      if (ev.button !== 0 || Date.now() < ignoreMouseUntil) return
+      cancelCloseTimer()
+      mouseDown = true
+      moved = false
+      pan = { x: ev.clientX, y: ev.clientY, ox: x, oy: y }
+    }
+
+    const onMouseMove = (ev) => {
+      if (!mouseDown || !pan) return
+      const dx = ev.clientX - pan.x
+      const dy = ev.clientY - pan.y
+      if (Math.hypot(dx, dy) > 6) moved = true
+      if (scale > 1) {
+        x = pan.ox + dx
+        y = pan.oy + dy
+        apply()
+      }
+    }
+
+    const onMouseUp = (ev) => {
+      if (!mouseDown) return
+      endGesture(ev.clientX, ev.clientY, ev.target)
+    }
+
+    const onWheel = (ev) => {
+      ev.preventDefault()
+      zoomAt(ev.clientX, ev.clientY, scale * (ev.deltaY > 0 ? 0.88 : 1.14))
+      apply()
+    }
+
+    stage.addEventListener('touchstart', onTouchStart, { passive: true })
+    stage.addEventListener('touchmove', onTouchMove, { passive: false })
+    stage.addEventListener('touchend', onTouchEnd)
+    stage.addEventListener('touchcancel', onTouchCancel)
+    stage.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    stage.addEventListener('wheel', onWheel, { passive: false })
+
+    lightboxCleanup = () => {
+      cancelCloseTimer()
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }
+
+  function removeComposerImage(index) {
+    const img = state.images[index]
+    if (img && lightboxNode && lightboxNode.dataset.src === composerSrc(img)) closeImageLightbox()
+    state.images = state.images.filter((_, i) => i !== index)
     render()
   }
 
@@ -2534,35 +3879,168 @@
     return el('div', { class: 'slash-menu', role: 'listbox', 'aria-label': '斜杠命令' }, kids)
   }
 
+  function openOutbox() {
+    const sid = state.session?.sessionId
+    if (!sid) return []
+    return chat.outbox.filter((item) => item.sessionId === sid)
+  }
+
+  function userMessageFromEvent(event) {
+    const data = isRecord(event.data) ? event.data : {}
+    const source = isRecord(data.source) ? data.source : {}
+    const images = imagesFromContent(data.content)
+    return {
+      kind: 'user',
+      text: textFromContent(data.content),
+      ...(images.length > 0 ? { images } : {}),
+      seq: event.seq,
+      time: event.time,
+      sourceKind: pickString(source.kind),
+    }
+  }
+
+  function isEchoOf(item, message) {
+    if (!item || !message || message.kind !== 'user' || message.local) return false
+    if (message.sourceKind !== undefined && message.sourceKind !== 'user') return false
+    if (typeof message.seq === 'number' && typeof item.afterSeq === 'number' && message.seq <= item.afterSeq) return false
+    const echo = String(message.text || '').trim()
+    const local = String(item.text || '').trim()
+    if (local && echo === local) return true
+    if (local && echo.includes(local) && ((item.images && item.images.length > 0) || echo.includes('【手机发来的图片】'))) return true
+    if (!local && item.images && item.images.length > 0 && ((message.images && message.images.length > 0) || echo.includes('【手机发来的图片】'))) return true
+    return false
+  }
+
+  function dropOutboxEcho(sessionId, event) {
+    if (!sessionId || chat.outbox.length === 0) return false
+    const message = userMessageFromEvent(event)
+    const index = chat.outbox.findIndex((item) => (
+      item.sessionId === sessionId && item.localStatus !== 'failed' && isEchoOf(item, message)
+    ))
+    if (index === -1) return false
+    chat.outbox.splice(index, 1)
+    return true
+  }
+
+  function reconcileOutbox(sessionId) {
+    if (!sessionId || chat.outbox.length === 0) return false
+    const used = new Set()
+    const next = []
+    let changed = false
+    for (const item of chat.outbox) {
+      if (item.sessionId !== sessionId || item.localStatus === 'failed') {
+        next.push(item)
+        continue
+      }
+      const echo = chat.messages.find((message) => !used.has(message.id) && isEchoOf(item, message))
+      if (echo) {
+        used.add(echo.id)
+        changed = true
+        continue
+      }
+      next.push(item)
+    }
+    if (!changed) return false
+    chat.outbox = next
+    return true
+  }
+
+  function focusComposer() {
+    const input = document.querySelector('.chat-input')
+    if (input) input.focus({ preventScroll: true })
+  }
+
+  function nudgeMux(sessionId) {
+    if (!mux || !sessionId) return
+    const minSeq = chat.folder && typeof chat.folder.maxSeq === 'function' ? chat.folder.maxSeq() : undefined
+    mux.nudge(sessionId, minSeq)
+  }
+
+  async function deliverOutbox(item) {
+    try {
+      await call('session.prompt', { sessionId: item.sessionId, mode: 'queue', content: item.content })
+      if (item.localStatus === 'sending') item.localStatus = 'sent'
+      if (state.session?.sessionId === item.sessionId) state.running = true
+      nudgeMux(item.sessionId)
+    } catch (err) {
+      item.localStatus = 'failed'
+      item.failed = true
+      state.error = String(err.message || err)
+    }
+    if (state.view === 'chat') render()
+  }
+
+  async function retryOutbox(item) {
+    if (!item || item.localStatus === 'sending' || !state.session) return
+    item.localStatus = 'sending'
+    item.failed = false
+    state.error = ''
+    chatScroll.stick = true
+    render()
+    await deliverOutbox(item)
+  }
+
   async function send() {
     const text = state.draft.trim()
-    if ((text === '' && state.images.length === 0) || state.sending || !state.session) return
-    state.sending = true
-    render()
-    try {
-      const parsed = parseSlashLine(text)
-      const isCommand = parsed && chat.slashCommands.some((row) => row.name === parsed.name)
-      if (isCommand && state.images.length === 0) {
+    const images = state.images.slice()
+    if ((text === '' && images.length === 0) || !state.session) return
+
+    const parsed = parseSlashLine(text)
+    const isCommand = Boolean(parsed && chat.slashCommands.some((row) => row.name === parsed.name) && images.length === 0)
+
+    state.error = ''
+    state.draft = ''
+    state.images = []
+    chatScroll.stick = true
+
+    if (isCommand) {
+      state.sending = true
+      render()
+      focusComposer()
+      try {
         const result = await call('command.execute', { sessionId: state.session.sessionId, line: text })
         const outcome = result && result.result
-        if (outcome && outcome.kind === 'error' && outcome.text) state.error = outcome.text
-        state.draft = ''
-      } else {
-        const content = []
-        if (text) content.push({ type: 'text', text })
-        for (const img of state.images) {
-          content.push({ type: 'image', mediaType: img.mediaType, data: img.data, fullData: img.fullData, name: img.name })
+        if (outcome && outcome.kind === 'error' && outcome.text) {
+          state.error = outcome.text
+          if (state.draft === '' && state.images.length === 0) state.draft = text
         }
-        await call('session.prompt', { sessionId: state.session.sessionId, mode: 'queue', content })
-        state.draft = ''
-        state.images = []
+      } catch (err) {
+        state.error = String(err.message || err)
+        if (state.draft === '' && state.images.length === 0) state.draft = text
+      } finally {
+        state.sending = false
+        render()
+        focusComposer()
       }
-    } catch (err) {
-      state.error = String(err.message || err)
-    } finally {
-      state.sending = false
-      render()
+      return
     }
+
+    const last = chat.messages[chat.messages.length - 1]
+    const item = {
+      id: `local:${rpcId()}`,
+      kind: 'user',
+      text,
+      images: images.map((img) => img.preview).filter(Boolean),
+      time: Date.now(),
+      local: true,
+      localStatus: 'sending',
+      sessionId: state.session.sessionId,
+      afterSeq: last && typeof last.seq === 'number' ? last.seq : -1,
+      content: [
+        ...(text ? [{ type: 'text', text }] : []),
+        ...images.map((img) => ({
+          type: 'image',
+          mediaType: img.mediaType,
+          data: img.data,
+          fullData: img.fullData,
+          name: img.name,
+        })),
+      ],
+    }
+    chat.outbox.push(item)
+    render()
+    focusComposer()
+    await deliverOutbox(item)
   }
 
   async function stopTurn() {
@@ -2580,10 +4058,28 @@
     if (m.failed) cls.push('chat-msg-failed')
 
     if (m.kind === 'user') {
+      if (m.local) cls.push('chat-msg-local')
+      if (m.localStatus === 'sending') cls.push('chat-msg-sending')
+      const status = m.localStatus === 'sending'
+        ? '发送中…'
+        : m.localStatus === 'sent'
+          ? '已发送'
+          : formatTime(m.time)
       return el('div', { class: cls.join(' ') }, [
         m.text ? el('div', { class: 'chat-msg-text' }, [m.text]) : null,
-        m.images?.length ? el('div', { class: 'chat-msg-images' }, m.images.map((src) => el('img', { src, alt: '' }))) : null,
-        el('span', { class: 'chat-msg-time' }, [formatTime(m.time)]),
+        m.images?.length ? el('div', { class: 'chat-msg-images' }, m.images.map((src) => el('button', {
+          type: 'button',
+          class: 'chat-msg-image-btn',
+          'aria-label': '放大查看图片',
+          onclick: () => openImageLightbox(src),
+        }, [el('img', { src, alt: '' })]))) : null,
+        m.localStatus === 'failed'
+          ? el('button', {
+              type: 'button',
+              class: 'chat-msg-failtag chat-msg-retry',
+              onclick: () => { void retryOutbox(m) },
+            }, ['发送失败，点此重试'])
+          : el('span', { class: 'chat-msg-time' }, [status]),
       ])
     }
 
@@ -2648,39 +4144,99 @@
       && !chat.showSystemMessages
   }
 
-  /** 显示 bottom sheet: tool-call + system-message toggles (old DisplaySheet port). */
-  function displaySheet() {
-    const row = (title, desc, value, onToggle) => (
-      el('div', { class: 'sheet-toggle-row' }, [
-        el('div', { class: 'sheet-toggle-copy' }, [
-          el('span', { class: 'sheet-toggle-title' }, [title]),
-          el('span', { class: 'sheet-toggle-desc' }, [desc]),
-        ]),
-        el('button', {
-          type: 'button',
-          class: `sheet-toggle-switch${value ? ' sheet-toggle-switch-on' : ''}`,
-          role: 'switch',
-          'aria-checked': String(value),
-          'aria-label': title,
-          onclick: () => { onToggle(!value) },
-        }, [el('span', { class: 'sheet-toggle-switch-knob' })]),
-      ])
-    )
-    return el('div', { class: 'sheet-backdrop', onclick: () => { state.sheet = null; render() } }, [
-      el('div', { class: 'sheet', onclick: (ev) => { ev.stopPropagation() } }, [
+  function settingsToggleRow(title, desc, value, onToggle) {
+    return el('div', { class: 'sheet-toggle-row' }, [
+      el('div', { class: 'sheet-toggle-copy' }, [
+        el('span', { class: 'sheet-toggle-title' }, [title]),
+        el('span', { class: 'sheet-toggle-desc' }, [desc]),
+      ]),
+      el('button', {
+        type: 'button',
+        class: `sheet-toggle-switch${value ? ' sheet-toggle-switch-on' : ''}`,
+        role: 'switch',
+        'aria-checked': String(value),
+        'aria-label': title,
+        onclick: () => { onToggle(!value) },
+      }, [el('span', { class: 'sheet-toggle-switch-knob' })]),
+    ])
+  }
+
+  /**
+   * Unified chat settings: model (drill into ModelSheet) + display toggles +
+   * context usage. These are set-and-forget, so they no longer sit above the
+   * composer eating vertical space.
+   */
+  function settingsSheet() {
+    const pct = contextUsage()
+    const pctWarn = pct !== undefined && pct >= 80
+    const model = chat.currentModel
+    return el('div', { class: 'sheet-backdrop', onclick: () => { state.sheet = null; state.sheetReturn = null; render() } }, [
+      el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '设置', onclick: (ev) => { ev.stopPropagation() } }, [
         el('div', { class: 'sheet-handle' }),
-        el('div', { class: 'sheet-title' }, ['显示']),
+        el('div', { class: 'sheet-title' }, ['设置']),
         el('div', { class: 'sheet-body' }, [
-          row('工具调用', '在消息里显示工具调用折叠块', chat.showToolCalls, (v) => {
-            chat.showToolCalls = v
-            writeStoredBoolean('dsh.mobile.showToolCalls', v)
-            render()
-          }),
-          row('显示系统消息', '显示宿主注入的系统提示消息（默认隐藏）', chat.showSystemMessages, (v) => {
-            chat.showSystemMessages = v
-            writeStoredBoolean('dsh.mobile.showSystemMessages', v)
-            render()
-          }),
+          el('div', { class: 'sheet-section' }, [
+            el('div', { class: 'sheet-section-title' }, ['模型']),
+            el('button', {
+              type: 'button',
+              class: 'sheet-nav-row',
+              'aria-haspopup': 'dialog',
+              'aria-label': '选择模型与思考强度',
+              onclick: () => void openModelSheet(),
+            }, [
+              el('div', { class: 'sheet-toggle-copy' }, [
+                el('span', { class: 'sheet-toggle-title' }, [model?.model || '选择模型']),
+                el('span', { class: 'sheet-toggle-desc' }, [
+                  model?.reasoningEffort
+                    ? `思考强度 ${model.reasoningEffort}`
+                    : '更换模型或思考强度',
+                ]),
+              ]),
+              el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
+            ]),
+            el('div', { class: 'sheet-toggle-row' }, [
+              el('div', { class: 'sheet-toggle-copy' }, [
+                el('span', { class: 'sheet-toggle-title' }, ['上下文占用']),
+                el('span', { class: 'sheet-toggle-desc' }, [
+                  pct === undefined
+                    ? '等模型回复后才会显示'
+                    : (pctWarn ? '接近上限，考虑新开会话' : '当前会话已用上下文窗口比例'),
+                ]),
+              ]),
+              el('span', {
+                class: pctWarn ? 'sheet-context-value sheet-context-value-warn' : 'sheet-context-value',
+              }, [pct === undefined ? '—' : `${pct}%`]),
+            ]),
+          ]),
+          el('div', { class: 'sheet-section' }, [
+            el('div', { class: 'sheet-section-title' }, ['显示']),
+            settingsToggleRow('工具调用', '在消息里显示工具调用折叠块', chat.showToolCalls, (v) => {
+              chat.showToolCalls = v
+              writeStoredBoolean('dsh.mobile.showToolCalls', v)
+              render()
+            }),
+            settingsToggleRow('显示系统消息', '显示宿主注入的系统提示消息（默认隐藏）', chat.showSystemMessages, (v) => {
+              chat.showSystemMessages = v
+              writeStoredBoolean('dsh.mobile.showSystemMessages', v)
+              render()
+            }),
+          ]),
+          el('div', { class: 'sheet-section' }, [
+            el('div', { class: 'sheet-section-title' }, ['额度']),
+            el('button', {
+              type: 'button',
+              class: 'sheet-nav-row',
+              'aria-haspopup': 'dialog',
+              'aria-label': '查看 DeepSeek 余额与 Grok 剩余额度',
+              onclick: () => openQuotaSheet(),
+            }, [
+              el('div', { class: 'sheet-toggle-copy' }, [
+                el('span', { class: 'sheet-toggle-title' }, ['DeepSeek / Grok']),
+                el('span', { class: 'sheet-toggle-desc' }, [quotaSummary()]),
+              ]),
+              el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
+            ]),
+          ]),
         ]),
       ]),
     ])
@@ -2688,6 +4244,7 @@
 
   /** 打开模型与思考强度弹层：每次打开都拉最新模型目录（老插件 ModelSheet 行为）。 */
   function openModelSheet() {
+    if (state.sheet === 'settings') state.sheetReturn = 'settings'
     state.sheet = 'model'
     chat.modelSheet = { status: 'loading' }
     chat.modelError = undefined
@@ -2700,14 +4257,30 @@
 
   /**
    * 模型与思考强度弹层（老插件 ModelSheet 的忠实移植）：分组模型 +
-   * 思考强度（含「跟随模型默认」），选中即提交 session.selectModel 并关闭。
+   * 思考强度（含「跟随模型默认」），选中即提交 session.selectModel。
+   * 从设置钻入时，取消/选中后回到设置，而不是直接关掉。
    */
   function renderModelSheet() {
-    const close = () => { state.sheet = null; render() }
+    const backToSettings = () => {
+      state.sheetReturn = null
+      state.sheet = 'settings'
+      render()
+    }
+    const dismiss = () => {
+      state.sheetReturn = null
+      state.sheet = null
+      render()
+    }
+    const close = state.sheetReturn === 'settings' ? backToSettings : dismiss
     const sheet = (kids) => el('div', { class: 'sheet-backdrop', onclick: close }, [
       el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '模型与思考强度', onclick: (ev) => { ev.stopPropagation() } }, [
         el('div', { class: 'sheet-handle' }),
-        el('div', { class: 'sheet-title' }, ['模型与思考强度']),
+        el('div', { class: 'sheet-title sheet-title-nav' }, [
+          state.sheetReturn === 'settings'
+            ? el('button', { type: 'button', class: 'sheet-back', 'aria-label': '返回设置', onclick: (ev) => { ev.stopPropagation(); backToSettings() } }, ['‹'])
+            : null,
+          '模型与思考强度',
+        ]),
         el('div', { class: 'sheet-body' }, kids),
       ]),
     ])
@@ -2822,7 +4395,8 @@
     // Opening a session (null key) pins to the bottom. After that, stick only
     // while the user is already near the bottom — never yank a reader back to
     // the top, and never fight a deliberate upward scroll.
-    const last = chat.messages[chat.messages.length - 1]
+    const localPending = openOutbox()
+    const last = localPending.length ? localPending[localPending.length - 1] : chat.messages[chat.messages.length - 1]
     const lastId = last === undefined ? undefined : last.id
     if (lastMsgScrollKey === null) chatScroll.stick = true
     if (lastId !== undefined) lastMsgScrollKey = lastId
@@ -2831,12 +4405,16 @@
     if (chat.hasOlder) {
       scroller.append(el('button', { type: 'button', class: 'chat-load-older', onclick: () => void loadOlder() }, ['加载更早消息']))
     }
-    if (chat.loading && chat.messages.length === 0) {
+    if (chat.loading && chat.messages.length === 0 && localPending.length === 0) {
       scroller.append(el('div', { class: 'chat-typing' }, ['加载中…']))
     }
     let visible = 0
     for (const m of chat.messages) {
       if (isHiddenSystemMessage(m)) continue
+      visible += 1
+      scroller.append(messageHtml(m))
+    }
+    for (const m of localPending) {
       visible += 1
       scroller.append(messageHtml(m))
     }
@@ -2848,14 +4426,31 @@
 
     const file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', multiple: true, onchange: onPickFile })
     const pics = state.images.length
-      ? el('div', { class: 'composer-pics' }, state.images.map((img) => el('img', { src: img.preview, alt: '' })))
+      ? el('div', { class: 'composer-pics' }, state.images.map((img, idx) => el('div', { class: 'composer-pic' }, [
+          el('button', {
+            type: 'button',
+            class: 'composer-pic-open',
+            'aria-label': img.name ? `放大查看 ${img.name}` : '放大查看即将发送的图片',
+            onclick: () => openImageLightbox(composerSrc(img)),
+          }, [el('img', { src: img.preview, alt: img.name || '' })]),
+          el('button', {
+            type: 'button',
+            class: 'composer-pic-remove',
+            'aria-label': '移除图片',
+            onclick: (ev) => { ev.stopPropagation(); removeComposerImage(idx) },
+          }, ['×']),
+        ])))
       : null
 
     const page = el('div', { class: 'mobile chat' }, [
       el('header', { class: 'mobile-header' }, [
-        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => { stopMuxObservation(); state.view = 'sessions'; render(); void loadSessions() } }, ['‹']),
-        el('h1', { class: 'mobile-title mobile-titleInline' }, [state.session ? sessionTitle(state.session) : '聊天']),
+        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack(state.workspace ? { view: 'sessions', workspaceId: state.workspace.workspaceId } : { view: 'workspaces' }) }, ['‹']),
+        el('h1', {
+          class: 'mobile-title mobile-titleInline',
+          title: state.session ? sessionTitle(state.session) : '聊天',
+        }, [state.session ? sessionTitle(state.session) : '聊天']),
         themeToggle(),
+        settingsButton(),
       ]),
       state.error ? el('p', { class: 'mobile-error mobile-pad' }, [state.error]) : null,
       state.running ? el('div', { class: 'chat-turn-status' }, [
@@ -2866,27 +4461,11 @@
       renderTodoDock(standingTodos()),
       pics,
       renderSlashMenu(),
-      el('div', { class: 'chat-tools' }, [
-        el('button', { type: 'button', class: 'chat-chip', 'aria-haspopup': 'dialog', onclick: () => void openModelSheet() }, [
-          el('span', { class: 'chat-chip-label' }, ['模型']),
-          el('span', { class: 'chat-chip-value' }, [chat.currentModel?.model ?? '模型']),
-          el('span', { class: 'chat-chip-chevron' }, ['›']),
-        ]),
-        el('button', { type: 'button', class: 'chat-chip', 'aria-haspopup': 'dialog', onclick: () => { state.sheet = 'display'; render() } }, [
-          el('span', { class: 'chat-chip-label' }, ['显示']),
-          el('span', { class: 'chat-chip-value' }, [chat.showSystemMessages ? '显示系统消息' : '系统消息已隐藏']),
-          el('span', { class: 'chat-chip-chevron' }, ['›']),
-        ]),
-        (() => {
-          const pct = contextUsage()
-          if (pct === undefined) return null
-          return el('div', { class: pct >= 80 ? 'chat-context chat-context-warn' : 'chat-context' }, [`上下文 ${pct}%`])
-        })(),
-      ]),
       el('div', { class: 'chat-inputbar' }, [
         el('textarea', {
           class: 'chat-input',
           placeholder: '输入消息，/ 调用命令或技能',
+          enterkeyhint: composerReturnIsNewline() ? 'enter' : 'send',
           value: state.draft,
           oninput: (ev) => {
             const prev = state.draft
@@ -2895,6 +4474,7 @@
             if (state.draft.startsWith('/') || prev.startsWith('/')) render()
           },
           onkeydown: (ev) => {
+            if (composerReturnIsNewline()) return
             if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
               ev.preventDefault()
               void send()
@@ -2906,7 +4486,7 @@
           ? el('button', { type: 'button', class: 'chat-send chat-send-stop', disabled: state.sending, onclick: () => void stopTurn() }, ['■'])
           : el('button', { type: 'button', class: 'chat-send', disabled: state.sending, onclick: () => void send() }, [state.sending ? '发送中…' : '发送']),
       ]),
-      state.sheet === 'model' ? renderModelSheet() : state.sheet === 'display' ? displaySheet() : null,
+      state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
     ])
     return page
   }
@@ -2915,11 +4495,14 @@
     const old = state.workspace
     const page = el('div', { class: 'mobile' }, [
       el('header', { class: 'mobile-header' }, [
-        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => { state.view = 'workspaces'; state.workspace = null; render() } }, ['‹']),
-        el('h1', { class: 'mobile-title mobile-titleInline' }, [old ? (old.title || basename(old.path)) : '会话']),
+        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack({ view: 'workspaces' }) }, ['‹']),
+        el('h1', { class: 'mobile-title mobile-titleInline' }, [old ? workspaceTitle(old) : '会话']),
         themeToggle(),
       ]),
     ])
+    const quotaBar = renderQuotaBar()
+    if (quotaBar) page.append(quotaBar)
+    if (state.sheet === 'quota') page.append(quotaSheet())
 
     if (state.loading && state.sessions.length === 0 && !state.error) {
       page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['加载中…'])]))
@@ -2982,23 +4565,43 @@
     if (!isStandalone()) {
       page.append(el('p', { class: 'mobile-pwa-hint' }, ['Safari 分享 → 添加到主屏幕，下次可以当 App 打开（需 HTTPS）。']))
     }
+    const quotaBar = renderQuotaBar()
+    if (quotaBar) page.append(quotaBar)
+    if (state.sheet === 'quota') page.append(quotaSheet())
+    if (state.createError) {
+      page.append(el('p', { class: 'mobile-error' }, [state.createError]))
+    }
     if (state.loading && state.workspaces.length === 0) {
       page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['加载中…'])]))
       return page
     }
     const list = el('ul', { class: 'mobile-list' })
     for (const ws of state.workspaces) {
+      const name = workspaceTitle(ws)
+      const pathLabel = abbreviateHomePath(ws.path)
       list.append(el('li', {}, [
-        el('button', { type: 'button', class: 'mobile-row', onclick: () => { void openWorkspace(ws) } }, [
-          el('span', { class: 'mobile-rowTitle' }, [ws.title || basename(ws.path)]),
-          el('span', { class: 'mobile-rowMeta' }, [ws.path || '']),
+        el('button', {
+          type: 'button',
+          class: 'mobile-row',
+          title: ws.path || name,
+          onclick: () => { void openWorkspace(ws) },
+        }, [
+          el('span', { class: 'mobile-rowStack' }, [
+            el('span', { class: 'mobile-rowTitle' }, [name]),
+            pathLabel && pathLabel !== name
+              ? el('span', { class: 'mobile-rowMeta' }, [pathLabel])
+              : null,
+          ]),
           el('span', { class: 'mobile-chevron' }, ['›']),
         ]),
       ]))
     }
     page.append(list)
     page.append(el('div', { class: 'pad16' }, [
-      el('button', { type: 'button', class: 'mobile-button', onclick: () => { state.dir = null; state.dirError = ''; state.view = 'dir'; render(); void openDir() } }, ['+ 新建工作区']),
+      state.todayAvailable
+        ? el('button', { type: 'button', class: 'mobile-button', disabled: state.creating, onclick: () => void openToday() }, [state.creating ? '打开中…' : '今天'])
+        : null,
+      el('button', { type: 'button', class: 'mobile-button', onclick: () => enterDir() }, ['+ 新建工作区']),
     ]))
     return page
   }
@@ -3009,6 +4612,7 @@
     render()
     try {
       state.dir = await call('host.listDirectory', path === undefined ? {} : { path })
+      if (state.dir && typeof state.dir.home === 'string' && state.dir.home) state.home = state.dir.home
     } catch (err) {
       state.dirError = String(err.message || err)
     }
@@ -3019,7 +4623,7 @@
     const dir = state.dir
     const page = el('div', { class: 'mobile dir-browser' }, [
       el('header', { class: 'mobile-header' }, [
-        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => { state.view = 'workspaces'; render() } }, ['‹']),
+        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack({ view: 'workspaces' }) }, ['‹']),
         el('h1', { class: 'mobile-title' }, ['选择目录']),
       ]),
     ])
@@ -3058,7 +4662,7 @@
       el('button', { type: 'button', class: 'mobile-button', onclick: async () => {
         try {
           const result = await call('workspace.create', { path: dir.path })
-          await openWorkspace(result.workspace)
+          await openWorkspace(result.workspace, { locationMode: 'replace' })
         } catch (err) {
           state.dirError = String(err.message || err)
           render()
@@ -3100,31 +4704,70 @@
         render()
         return
       }
-      history.replaceState({}, '', '/mp/')
-      await enterWorkspaces()
+      stripPairQuery()
+      await enterApp()
     })
     return el('main', { class: 'mobile mobile-pair' }, [form])
   }
 
-  async function enterWorkspaces() {
-    state.view = 'workspaces'
-    state.error = ''
-    state.loading = true
+  async function probeToday() {
+    try {
+      const res = await fetch('/dsh-today/info', { credentials: 'same-origin' })
+      state.todayAvailable = res.ok
+    } catch {
+      state.todayAvailable = false
+    }
+  }
+
+  async function openToday() {
+    if (state.creating) return
+    state.creating = true
+    state.createError = ''
     render()
     try {
+      const res = await fetch('/dsh-today/open', { method: 'POST', credentials: 'same-origin' })
+      const data = await res.json()
+      if (!res.ok || !data || typeof data.path !== 'string') {
+        throw new Error((data && data.error) || '无法创建今天的工作区')
+      }
+      const result = await call('workspace.create', { path: data.path })
+      await loadWorkspaces()
+      await openWorkspace(result.workspace, { locationMode: 'replace' })
+    } catch (err) {
+      state.createError = String(err.message || err)
+    } finally {
+      state.creating = false
+      if (state.view === 'workspaces') render()
+    }
+  }
+
+  async function enterApp() {
+    state.error = ''
+    state.loading = true
+    if (state.view !== 'boot') {
+      state.view = 'boot'
+      render()
+    }
+    try {
+      await probeToday()
       await loadWorkspaces()
       await loadPresets()
       await ensureMux()
+      await ensureHost()
+      startListPoll()
+      void loadQuota(false)
+      await restoreRoute()
+      if (state.view !== 'error') state.loading = false
     } catch (err) {
       state.error = String(err.message || err)
       state.view = 'error'
-    } finally {
       state.loading = false
       render()
     }
   }
 
   function render() {
+    if (state.view !== 'chat') closeImageLightbox()
     if (state.view === 'boot') {
       rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['正在连接…'])]))
       return
@@ -3186,17 +4829,17 @@
     try {
       const paired = await pairStatus()
       if (paired) {
-        await enterWorkspaces()
+        await enterApp()
         return
       }
-      const token = parsePairInput(window.location.search)
+      const token = parsePairInput(window.location.href)
       if (token) {
         const message = await acceptPair(token)
         if (message) {
           state.dirError = message
         } else {
-          history.replaceState({}, '', '/mp/')
-          await enterWorkspaces()
+          stripPairQuery()
+          await enterApp()
           return
         }
       }
@@ -3222,6 +4865,28 @@
   pinViewport()
   installOverscrollLock()
   registerPwa()
+  window.addEventListener('popstate', () => {
+    if (ignoringPop) return
+    if (state.view === 'boot' || state.view === 'pair') return
+    const route = (history.state && history.state.mp) || parseRoute(window.location.hash)
+    void applyRoute(route, { fromPopstate: true })
+  })
+  function onForeground() {
+    if (mux) mux.wake()
+    if (host) host.wake()
+    void loadQuota(false)
+    void refreshLiveSnapshot()
+    if (state.view === 'chat' && state.session) {
+      if (mux) mux.nudge(state.session.sessionId)
+      void refreshPending()
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') onForeground()
+  })
+  window.addEventListener('pageshow', () => { onForeground() })
+  window.addEventListener('online', () => { onForeground() })
   render()
   void boot()
 })()
