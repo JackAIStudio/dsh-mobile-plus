@@ -1,8 +1,8 @@
 {
   "name": "dsh-mobile-plus",
-  "version": "0.2.18",
+  "version": "0.3.0",
   "private": true,
-  "description": "Independent DSH mobile remote: chat with text and files, with an icon-only desktop sidebar trigger and pairing panel. Does not modify @linxin666/dsh-web-all.",
+  "description": "Independent DSH mobile remote: chat with text and files, with an icon-only desktop sidebar trigger and pairing panel.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -17,8 +17,15 @@
     "qrcodegen.js",
     "public",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "AGENTS.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JackAIStudio/dsh-mobile-plus.git"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

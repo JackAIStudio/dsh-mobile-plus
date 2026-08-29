@@ -278,12 +278,13 @@ window.__ModuleLoader__.load({
       const localOrigin = (() => {
         try { return new URL(issue.localUrl).origin } catch { return issue.localUrl }
       })()
-      return h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机发图远程' },
+      const hasPublic = typeof issue.publicBaseUrl === 'string' && issue.publicBaseUrl !== ''
+      return h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机远程' },
         h('div', { className: 'mp-header' },
           h('div', { className: 'mp-heading' },
-            h('h2', { className: 'mp-title' }, ['手机发图远程']),
-            h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件 · 不影响原 /m/'])),
-          h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机发图远程面板', onClick: onClose },
+            h('h2', { className: 'mp-title' }, ['手机远程']),
+            h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件'])),
+          h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机远程面板', onClick: onClose },
             h(IconClose16, { size: 14 }))),
 
         h('div', { className: 'mp-card' },
@@ -298,7 +299,7 @@ window.__ModuleLoader__.load({
             ? h('p', { className: 'mp-expired' }, ['二维码已过期，请刷新'])
             : h('p', { className: 'mp-expiry' }, [`二维码有效至 ${formatClock(issue.expiresAt)}`])),
 
-        h('p', { className: 'mp-hint' }, [publicQr ? '公网链接：设备无需与本机处于同一网络' : '无法扫码？可直接打开下方配对链接']),
+        h('p', { className: 'mp-hint' }, [publicQr && hasPublic ? '公网链接：设备无需与本机处于同一网络' : '无法扫码？可直接打开下方配对链接']),
         h('div', { className: 'mp-pair-links' },
           h('div', { className: 'mp-pair-link-row' },
             h('div', { className: 'mp-pair-link-text' },
@@ -320,14 +321,16 @@ window.__ModuleLoader__.load({
         h('fieldset', { className: 'mp-addresses' },
           h('legend', null, ['选择二维码指向的网络']),
           h('label', { className: 'mp-address' },
-            h('input', { type: 'radio', name: 'mp-network', 'aria-label': '公网地址', checked: publicQr, onChange: onPickPublic }),
+            h('input', { type: 'radio', name: 'mp-network', 'aria-label': '公网地址', checked: publicQr && hasPublic, disabled: !hasPublic, onChange: onPickPublic }),
             h('span', null, ['公网地址']),
-            h('code', { className: 'mp-address-value' }, [issue.publicBaseUrl || localOrigin])),
+            h('code', { className: 'mp-address-value' }, [hasPublic ? issue.publicBaseUrl : '未配置'])),
           h('label', { className: 'mp-address' },
-            h('input', { type: 'radio', name: 'mp-network', 'aria-label': localOrigin, checked: !publicQr, onChange: onPickLocal }),
-            h('span', null, ['局域网']),
+            h('input', { type: 'radio', name: 'mp-network', 'aria-label': localOrigin, checked: !hasPublic || !publicQr, onChange: onPickLocal }),
+            h('span', null, ['本机']),
             h('code', { className: 'mp-address-value' }, [localOrigin])),
-          h('p', { className: 'mp-address-hint' }, ['远程设备不在同一网络时请使用公网地址；局域网地址仅限同一网络内使用。'])),
+          h('p', { className: 'mp-address-hint' }, [hasPublic
+            ? '远程设备不在同一网络时请使用公网地址；本机地址仅限这台电脑的浏览器。'
+            : '未配置 publicBaseUrl 时只生成本机链接。云主机或反代请在插件配置里填写你自己的公网地址。'])),
 
         h('div', { className: 'mp-actions' },
           h('button', { type: 'button', className: 'mp-action', disabled: busy || stopped, onClick: onStop },
@@ -367,7 +370,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
       const [issue, setIssue] = React.useState(null)
-      const [publicQr, setPublicQr] = React.useState(true)
+      const [publicQr, setPublicQr] = React.useState(false)
       const [stopped, setStopped] = React.useState(false)
       const [expired, setExpired] = React.useState(false)
       const [status, setStatus] = React.useState({ deviceCount: 0, onlineCount: 0, devices: [], paired: false })
@@ -380,6 +383,7 @@ window.__ModuleLoader__.load({
         try {
           const data = await issuePair()
           setIssue(data)
+          setPublicQr(typeof data.publicBaseUrl === 'string' && data.publicBaseUrl !== '')
           setStopped(false)
           setExpired(Date.now() > data.expiresAt)
         } catch (err) {
@@ -458,12 +462,12 @@ window.__ModuleLoader__.load({
                   onPickLocal: () => setPublicQr(false),
                   onRevoke: handleRevoke,
                 })
-              : h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机发图远程' },
+              : h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机远程' },
                   h('div', { className: 'mp-header' },
                     h('div', { className: 'mp-heading' },
-                      h('h2', { className: 'mp-title' }, ['手机发图远程']),
-                      h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件 · 不影响原 /m/'])),
-                    h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机发图远程面板', onClick: closePanel },
+                      h('h2', { className: 'mp-title' }, ['手机远程']),
+                      h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件'])),
+                    h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机远程面板', onClick: closePanel },
                       h(IconClose16, { size: 14 }))),
                   error ? h('p', { className: 'mp-error' }, [error]) : null,
                   h('div', { className: 'mp-actions' },

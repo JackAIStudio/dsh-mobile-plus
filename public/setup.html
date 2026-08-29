@@ -153,11 +153,11 @@
 </style>
 </head>
 <body>
-<div class="panel" role="dialog" aria-label="手机发图远程">
+<div class="panel" role="dialog" aria-label="手机远程">
   <div class="header">
     <div class="heading">
-      <h2 class="title">手机发图远程</h2>
-      <p class="subtitle">独立插件 · 支持文字与文件 · 不影响原 /m/</p>
+      <h2 class="title">手机远程</h2>
+      <p class="subtitle">独立插件 · 支持文字与文件</p>
     </div>
   </div>
 
@@ -196,16 +196,16 @@
   <fieldset class="addresses">
     <legend>选择二维码指向的网络</legend>
     <label class="address">
-      <input id="net-public" type="radio" name="mp-network" checked />
+      <input id="net-public" type="radio" name="mp-network" />
       <span>公网地址</span>
       <code id="public-base" class="address-value"></code>
     </label>
     <label class="address">
-      <input id="net-local" type="radio" name="mp-network" />
-      <span>局域网</span>
+      <input id="net-local" type="radio" name="mp-network" checked />
+      <span>本机</span>
       <code id="local-base" class="address-value"></code>
     </label>
-    <p class="address-hint">远程设备不在同一网络时请使用公网地址；局域网地址仅限同一网络内使用。</p>
+    <p id="address-hint" class="address-hint">未配置 publicBaseUrl 时只生成本机链接。云主机或反代请在插件配置里填写你自己的公网地址。</p>
   </fieldset>
 
   <div class="actions">
@@ -233,6 +233,7 @@
   const stopBtn = $('stop'), refreshBtn = $('refresh')
   const netPublic = $('net-public'), netLocal = $('net-local')
   const publicBase = $('public-base'), localBase = $('local-base')
+  const addressHint = $('address-hint')
   const devicesEmpty = $('devices-empty'), deviceList = $('device-list')
 
   let issue = null
@@ -275,7 +276,8 @@
 
   function renderQr() {
     if (!issue) return
-    const publicQr = netPublic.checked
+    const hasPublic = typeof issue.publicBaseUrl === 'string' && issue.publicBaseUrl !== ''
+    const publicQr = hasPublic && netPublic.checked
     badgePublic.hidden = !publicQr
     qrEl.src = publicQr ? issue.qr : issue.qrLocal
     hintEl.textContent = publicQr ? '公网链接：设备无需与本机处于同一网络' : '无法扫码？可直接打开下方配对链接'
@@ -341,7 +343,16 @@
       urlEl.title = data.url
       localUrlEl.textContent = data.localUrl
       localUrlEl.title = data.localUrl
-      publicBase.textContent = data.publicBaseUrl || ''
+      const hasPublic = typeof data.publicBaseUrl === 'string' && data.publicBaseUrl !== ''
+      publicBase.textContent = hasPublic ? data.publicBaseUrl : '未配置'
+      netPublic.disabled = !hasPublic
+      netPublic.checked = hasPublic
+      netLocal.checked = !hasPublic
+      if (addressHint) {
+        addressHint.textContent = hasPublic
+          ? '远程设备不在同一网络时请使用公网地址；本机地址仅限这台电脑的浏览器。'
+          : '未配置 publicBaseUrl 时只生成本机链接。云主机或反代请在插件配置里填写你自己的公网地址。'
+      }
       try { localBase.textContent = new URL(data.localUrl).origin } catch { localBase.textContent = data.localUrl }
       copyPhone.disabled = false
       copyDesktop.disabled = false

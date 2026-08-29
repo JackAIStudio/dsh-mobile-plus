@@ -3,4 +3,3 @@
       name: dsh-mobile-plus
       config:
         enabled: true
-        publicBaseUrl: http://your-relay-host

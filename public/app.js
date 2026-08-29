@@ -5176,7 +5176,7 @@
   function renderPair() {
     const input = el('input', {
       id: 'mobile-pair-link', class: 'mobile-pairInput',
-      placeholder: 'http://your-relay-host/mp/?pair=…',
+      placeholder: 'https://your-host/mp/?pair=…',
       autocomplete: 'off',
     })
     const form = el('form', { class: 'mobile-pairCard' }, [

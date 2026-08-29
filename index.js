@@ -2,7 +2,7 @@
  * dsh-mobile-plus — independent mobile remote with text + file prompts.
  * Own routes under /mp. Does not patch @linxin666/dsh-remote-web-ui.
  */
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
@@ -150,6 +150,37 @@ function cookieValue(header, name) {
   return undefined
 }
 
+function normalizePublicBaseUrl(raw) {
+  const trimmed = String(raw || '').trim().replace(/\/$/, '')
+  if (trimmed === '') return ''
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
+    return trimmed
+  } catch {
+    return ''
+  }
+}
+
+function sameSecret(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string') return false
+  const a = Buffer.from(left)
+  const b = Buffer.from(right)
+  if (a.length === 0 || a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
+function isHttps(req) {
+  if (req.socket?.encrypted) return true
+  const forwarded = req.headers['x-forwarded-proto']
+  if (typeof forwarded !== 'string' || forwarded === '') return false
+  return forwarded.split(',')[0].trim() === 'https'
+}
+
+function deviceCookie(id, row) {
+  return typeof row?.secret === 'string' && row.secret !== '' ? row.secret : id
+}
+
 function deviceId() {
   return randomBytes(16).toString('hex')
 }
@@ -287,11 +318,11 @@ export function apply(ctx, config = {}) {
   const enabled = config.enabled !== false
   if (!enabled) return
 
-  const publicBaseUrl = String(config.publicBaseUrl || 'http://your-relay-host').replace(/\/$/, '')
+  const publicBaseUrl = normalizePublicBaseUrl(config.publicBaseUrl)
   const requirePairing = config.requirePairing !== false
   let publicHost = ''
   try {
-    publicHost = new URL(publicBaseUrl).host
+    publicHost = publicBaseUrl === '' ? '' : new URL(publicBaseUrl).host
   } catch {
     publicHost = ''
   }
@@ -307,23 +338,39 @@ export function apply(ctx, config = {}) {
     return typeof host === 'string' && publicHost !== '' && host === publicHost
   }
 
-  const hasDevice = (id) => {
-    const row = devices[id]
-    if (!row) return false
-    if (Date.now() - row.lastSeenAt > IDLE_MS) {
-      delete devices[id]
-      persist()
-      return false
+  const findByCookie = (cookie) => {
+    if (typeof cookie !== 'string' || cookie === '') return undefined
+    for (const id of Object.keys(devices)) {
+      const row = devices[id]
+      if (sameSecret(deviceCookie(id, row), cookie)) return { id, row }
     }
-    return true
+    return undefined
   }
 
   const touch = (req) => {
-    const id = cookieValue(req.headers.cookie, COOKIE)
-    if (id === undefined || !hasDevice(id)) return false
-    devices[id].lastSeenAt = Date.now()
+    const found = findByCookie(cookieValue(req.headers.cookie, COOKIE))
+    if (!found) return false
+    if (Date.now() - found.row.lastSeenAt > IDLE_MS) {
+      delete devices[found.id]
+      persist()
+      return false
+    }
+    found.row.lastSeenAt = Date.now()
     persist()
     return true
+  }
+
+  const setDeviceCookie = (resHeaders, secret, req) => {
+    const parts = [
+      `${COOKIE}=${secret}`,
+      `Path=${PREFIX}`,
+      'HttpOnly',
+      'SameSite=Lax',
+      `Max-Age=${60 * 60 * 24 * 365}`,
+    ]
+    if (isHttps(req)) parts.push('Secure')
+    resHeaders['set-cookie'] = parts.join('; ')
+    return resHeaders
   }
 
   const handleSetup = (req, res) => {
@@ -350,8 +397,8 @@ export function apply(ctx, config = {}) {
     }
     const secret = randomBytes(16).toString('hex')
     token = { secret, expiresAt: Date.now() + TOKEN_TTL_MS, consumed: false }
-    const url = `${publicBaseUrl}${PREFIX}/?pair=${secret}`
     const localUrl = `http://127.0.0.1:${String(ctx.webServer.port)}${PREFIX}/?pair=${secret}`
+    const url = publicBaseUrl === '' ? localUrl : `${publicBaseUrl}${PREFIX}/?pair=${secret}`
     json(res, 200, {
       ok: true,
       url,
@@ -381,21 +428,27 @@ export function apply(ctx, config = {}) {
       return
     }
     const offered = typeof body.token === 'string' ? body.token : ''
-    if (!token || token.consumed || token.secret !== offered || Date.now() > token.expiresAt) {
+    const valid = Boolean(
+      token
+      && !token.consumed
+      && Date.now() <= token.expiresAt
+      && sameSecret(token.secret, offered),
+    )
+    if (!valid) {
       json(res, 404, { ok: false, code: 'invalid-token' })
       return
     }
     token.consumed = true
     const id = deviceId()
+    const cookieSecret = deviceId()
     devices[id] = {
+      secret: cookieSecret,
       createdAt: Date.now(),
       lastSeenAt: Date.now(),
       label: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'].slice(0, 180) : 'phone',
     }
     persist()
-    json(res, 200, { ok: true, deviceId: id }, {
-      'set-cookie': `${COOKIE}=${id}; Path=${PREFIX}; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}`,
-    })
+    json(res, 200, { ok: true, deviceId: id }, setDeviceCookie({}, cookieSecret, req))
   }
 
   const handleStatus = (req, res) => {
@@ -406,6 +459,18 @@ export function apply(ctx, config = {}) {
     }
     if (!trustedHost(req)) {
       json(res, 403, { ok: false, code: 'forbidden' })
+      return
+    }
+    const paired = requirePairing ? touch(req) : true
+    if (!isLoopback(req)) {
+      json(res, 200, {
+        ok: true,
+        paired,
+        deviceCount: 0,
+        onlineCount: 0,
+        devices: [],
+        publicBaseUrl,
+      })
       return
     }
     const alive = aliveDevices(devices)
@@ -420,7 +485,7 @@ export function apply(ctx, config = {}) {
     }))
     json(res, 200, {
       ok: true,
-      paired: requirePairing ? touch(req) : true,
+      paired,
       deviceCount: alive.count,
       onlineCount: rows.filter((row) => row.online).length,
       devices: rows,
