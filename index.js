@@ -134,11 +134,23 @@ function hostnameOf(req) {
   }
 }
 
-function isLoopback(req) {
+function hostIsLoopback(req) {
   const hostname = hostnameOf(req)
-  if (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1') return true
+  return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1'
+}
+
+function socketIsLoopback(req) {
   const addr = req.socket?.remoteAddress
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
+}
+
+/**
+ * setup / pair/issue / stop / revoke, and the device list on status,
+ * are for the host's own browser. SSH reverse tunnels make the socket
+ * look like loopback while Host is the public name — require both.
+ */
+function isLoopback(req) {
+  return hostIsLoopback(req) && socketIsLoopback(req)
 }
 
 function cookieValue(header, name) {
