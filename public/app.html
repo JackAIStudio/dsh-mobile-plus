@@ -386,11 +386,69 @@ body {
   37.5%, 100% { opacity: 0.15; }
 }
 
-.mobile-pwa-hint {
-  margin: 0 16px 8px;
-  color: var(--m-text-tertiary);
+.pwa-secure {
+  margin: 0 4px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pwa-secure.is-ok {
+  background: color-mix(in srgb, var(--m-success) 12%, transparent);
+}
+
+.pwa-secure.is-warn {
+  background: color-mix(in srgb, var(--m-warning) 14%, transparent);
+}
+
+.pwa-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pwa-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--m-bg);
+}
+
+.pwa-step-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
   font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pwa-step-text {
+  flex: 1;
+  font-size: 14px;
   line-height: 1.45;
+  padding-top: 1px;
+}
+
+.pwa-actions {
+  display: grid;
+  gap: 8px;
+  padding: 4px 4px 8px;
+}
+
+.pwa-actions .mobile-new,
+.pwa-actions .mobile-button {
+  width: 100%;
 }
 
 /* ── empty / error states ────────────────────────────────────────────── */
@@ -2105,7 +2163,7 @@ body {
   padding: 40px 0;
 }
 
-/* ── dsh-mobile-plus extras: images + composer image picker + pair brand ── */
+/* ── dsh-mobile-plus extras: attachments + composer picker + pair brand ── */
 .chat-msg-images { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .chat-msg-image-btn {
   display: block;
@@ -2123,6 +2181,22 @@ body {
   border-radius: 8px;
   border: 1px solid var(--m-border);
 }
+.chat-msg-files { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; align-items: flex-end; }
+.chat-msg-file {
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-bg-raised);
+}
+.chat-msg-file-name {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
 .composer-pics {
   display: flex;
   gap: 10px;
@@ -2130,12 +2204,35 @@ body {
   padding: 12px 16px 8px;
   -webkit-overflow-scrolling: touch;
 }
-.composer-pic {
+.composer-pic,
+.composer-file {
   position: relative;
   flex: none;
-  width: 64px;
   height: 64px;
 }
+.composer-pic { width: 64px; }
+.composer-file {
+  width: 148px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-bg-raised);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.composer-pic.is-failed img,
+.composer-file.is-failed { border-color: var(--m-danger); }
+.composer-file-name,
+.composer-file-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-file-name { font-size: 12.5px; }
+.composer-file-meta { color: var(--m-text-tertiary); font-size: 11px; }
 .composer-pic-open {
   display: block;
   width: 64px;
@@ -2154,6 +2251,18 @@ body {
   border-radius: 8px;
   border: 1px solid var(--m-border);
 }
+.composer-pic-progress {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--m-bg) 55%, transparent);
+  color: var(--m-text);
+  font-size: 11px;
+  pointer-events: none;
+}
 .composer-pic-remove {
   position: absolute;
   top: -7px;
@@ -2170,9 +2279,40 @@ body {
   line-height: 22px;
   cursor: pointer;
 }
-.pic-btn { flex: none; align-self: flex-end; height: 40px; padding: 0 12px; border: 1px solid var(--m-border); border-radius: 10px; background: var(--m-bg-raised); color: var(--m-text); font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-.pic-btn:disabled { opacity: .5; }
-.pic-btn input { display: none; }
+.attach-btn {
+  flex: none;
+  align-self: flex-end;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.attach-btn:disabled { opacity: .5; }
+.attach-btn-icon,
+.attach-btn-icon svg { display: block; width: 20px; height: 20px; }
+.attach-input { display: none; }
+.attach-sheet { padding: 0 10px 12px; }
+.attach-sheet-item,
+.attach-sheet-cancel {
+  width: 100%;
+  height: 48px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--m-text);
+  font-size: 16px;
+  cursor: pointer;
+}
+.attach-sheet-item:active,
+.attach-sheet-cancel:active { background: var(--m-bg-input); }
+.attach-sheet-cancel { color: var(--m-text-secondary); }
 
 .img-lightbox {
   position: fixed;
@@ -2249,6 +2389,6 @@ body {
 </head>
 <body>
   <div id="root"></div>
-  <script src="/mp/app.js?v=0.2.16"></script>
+  <script src="/mp/app.js?v=0.2.17"></script>
 </body>
 </html>

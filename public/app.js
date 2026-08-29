@@ -5,7 +5,7 @@
  * (@linxin666/dsh-remote-web-ui/src/mobile/*) — same view state machine
  * (workspaces → sessions → chat), same markup/classes (mobileCss), same
  * markdown renderer — with TWO differences: the chat composer can attach
- * images (相册/拍照), sent images also land in the workspace's
+ * files (相册/文件), which land in the workspace's
  * .dsh-mobile-inbox/ via the host; and the current workspace/session is
  * addressable (`#/ws/:id/s/:id`) so a refresh or PWA relaunch returns
  * there instead of the workspace list.
@@ -34,14 +34,14 @@
     cursor: undefined,
     hasMoreSessions: false,
     draft: '',
-    images: [],
+    attachments: [],
     sending: false,
     running: false,
     dir: null, // { path, home, crumbs, entries, truncated, ... }
     home: '', // host home from listDirectory, used to abbreviate workspace paths
     dirError: '',
     todayAvailable: false,
-    sheet: null, // 'settings' | 'model' | 'quota' | null (bottom sheet)
+    sheet: null, // 'settings' | 'model' | 'quota' | 'pwa' | null (bottom sheet)
     sheetReturn: null, // 'settings' when the model sheet was opened from 设置
   }
 
@@ -1046,6 +1046,87 @@
     }, [
       headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/><rect x="10" y="13" width="4" height="4" rx="0.8" fill="currentColor" stroke="none"/></svg>'),
     ])
+  }
+
+  /** Workspace-list header: share/install affordance, same 32px circle as theme toggle. */
+  function pwaButton() {
+    const open = state.sheet === 'pwa'
+    return el('button', {
+      type: 'button',
+      class: 'mobile-theme-toggle mobile-pwa-btn',
+      'aria-label': '如何添加到主屏幕',
+      'aria-haspopup': 'dialog',
+      'aria-expanded': open ? 'true' : 'false',
+      title: '添加到主屏幕',
+      onclick: () => {
+        state.sheet = state.sheet === 'pwa' ? null : 'pwa'
+        render()
+      },
+    }, [
+      headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>'),
+    ])
+  }
+
+  function pwaSheet() {
+    const secure = isSecurePage()
+    const apple = isAppleMobile()
+    const canPrompt = Boolean(deferredInstallPrompt)
+    const steps = apple
+      ? [
+        '点 Safari 底部中间的分享按钮（方框、箭头朝上）',
+        '往下滚，点「添加到主屏幕」',
+        '右上角点「添加」',
+      ]
+      : [
+        '点浏览器菜单（通常是右上角 ⋯）',
+        '选「添加到主屏幕」或「安装应用」',
+        '确认添加',
+      ]
+    const close = () => { state.sheet = null; render() }
+    return el('div', { class: 'sheet-backdrop', onclick: close }, [
+      el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '添加到主屏幕', onclick: (ev) => { ev.stopPropagation() } }, [
+        el('div', { class: 'sheet-handle' }),
+        el('div', { class: 'sheet-title' }, ['添加到主屏幕']),
+        el('div', { class: 'sheet-body' }, [
+          el('p', { class: 'sheet-confirm-desc' }, ['加到主屏幕以后，下次从图标打开就是独立 App，没有 Safari 底栏。']),
+          el('div', { class: `pwa-secure${secure ? ' is-ok' : ' is-warn'}` }, [
+            secure
+              ? '当前已是 HTTPS，可以添加。'
+              : '当前是 HTTP（Safari 会显示「不安全」）。只有 HTTPS 才能真正当 App 打开；现在加进去，下次仍会进浏览器。',
+          ]),
+          el('div', { class: 'sheet-section' }, [
+            el('div', { class: 'sheet-section-title' }, [apple ? 'Safari' : '浏览器']),
+            el('ol', { class: 'pwa-steps' }, steps.map((text, idx) => el('li', { class: 'pwa-step' }, [
+              el('span', { class: 'pwa-step-n', 'aria-hidden': 'true' }, [String(idx + 1)]),
+              el('span', { class: 'pwa-step-text' }, [text]),
+            ]))),
+          ]),
+          el('div', { class: 'pwa-actions' }, [
+            canPrompt
+              ? el('button', {
+                  type: 'button',
+                  class: 'mobile-new',
+                  onclick: () => { void promptPwaInstall() },
+                }, ['安装到主屏幕'])
+              : null,
+            el('button', { type: 'button', class: 'mobile-button', onclick: close }, ['知道了']),
+          ]),
+        ]),
+      ]),
+    ])
+  }
+
+  async function promptPwaInstall() {
+    if (!deferredInstallPrompt) return
+    const promptEvent = deferredInstallPrompt
+    deferredInstallPrompt = null
+    try {
+      await promptEvent.prompt()
+    } catch {
+      /* user dismissed or the browser cancelled */
+    }
+    state.sheet = null
+    render()
   }
 
   /** Chat-only header control: model / display / context live in one sheet. */
@@ -3002,7 +3083,7 @@
     state.session = session
     state.view = 'chat'
     setDraft('')
-    state.images = []
+    clearAttachments()
     state.sending = false
     lastMsgScrollKey = null
     chatScroll.stick = true
@@ -3338,16 +3419,32 @@
       : el('button', { type: 'button', class: 'chat-send', disabled: state.sending, onclick: () => void send() }, [state.sending ? '发送中…' : '发送'])
   }
 
+  function makeAttachButton() {
+    const open = state.sheet === 'attach'
+    return el('button', {
+      type: 'button',
+      class: 'attach-btn',
+      'aria-label': '添加附件',
+      'aria-haspopup': 'dialog',
+      'aria-expanded': open ? 'true' : 'false',
+      disabled: state.sending,
+      onclick: () => {
+        state.sheet = state.sheet === 'attach' ? null : 'attach'
+        render()
+      },
+    }, [
+      el('span', {
+        class: 'attach-btn-icon',
+        'aria-hidden': 'true',
+        html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05 12.25 20.24a6 6 0 1 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 1 1-2.82-2.83l8.49-8.48"/></svg>',
+      }),
+    ])
+  }
+
   function buildInputbar() {
-    const file = el('input', {
-      type: 'file',
-      accept: 'image/png,image/jpeg,image/webp,image/gif',
-      multiple: true,
-      onchange: onPickFile,
-    })
     return el('div', { class: 'chat-inputbar' }, [
       ensureComposer(),
-      el('label', { class: 'pic-btn' }, ['图片', file]),
+      makeAttachButton(),
       makeSendButton(),
     ])
   }
@@ -3366,6 +3463,17 @@
       else bar.append(send)
     }
     syncComposerDraft(ensureComposer(), state.draft, false)
+    const attach = makeAttachButton()
+    const oldAttach = bar.querySelector('.attach-btn')
+    if (
+      !oldAttach
+      || oldAttach.className !== attach.className
+      || oldAttach.disabled !== attach.disabled
+      || oldAttach.getAttribute('aria-expanded') !== attach.getAttribute('aria-expanded')
+    ) {
+      if (oldAttach) oldAttach.replaceWith(attach)
+      else bar.insertBefore(attach, bar.querySelector('.chat-send'))
+    }
   }
 
   function abandonComposerIme() {
@@ -3611,81 +3719,281 @@
     if (mux !== null) mux.observe(undefined)
   }
 
-  /* ── composer image handling ───────────────────────────────────────── */
+  /* ── composer attachments: 相册 / 文件 → binary upload → path in prompt ─ */
 
-  async function readAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result || ''))
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
+  const MAX_ATTACHMENTS = 5
+  const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+  const previewByPath = new Map()
+  const uploadWaiters = new Map()
+  let albumInput = null
+  let fileInput = null
+  let attachProgressTimer = 0
+
+  function formatBytes(n) {
+    if (!Number.isFinite(n) || n < 0) return ''
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+    const mb = n / (1024 * 1024)
+    return `${mb >= 10 ? mb.toFixed(0) : mb.toFixed(1)} MB`
   }
 
-  /**
-   * 压缩一张手机图，输出两版：
-   * - full：≤1600px JPEG 0.85 —— 主机用它落盘 .dsh-mobile-inbox/，模型
-   *   按路径 read_image 读的就是它（识别精度不变）
-   * - thumb（content.data）：≤320px JPEG 0.75 —— 仅进会话内容/历史传输，
-   *   聊天记录与历史加载只传这一份（观看体验：流畅优先，精度够看清即可）
-   */
-  async function compress(file) {
-    const dataUrl = await readAsDataURL(file)
-    const img = await new Promise((resolve, reject) => {
-      const image = new Image()
-      image.onload = () => resolve(image)
-      image.onerror = reject
-      image.src = dataUrl
-    })
-    const render = (max, quality) => {
-      let { width, height } = img
-      const scale = Math.min(max / width, max / height, 1)
-      width = Math.round(width * scale)
-      height = Math.round(height * scale)
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
-      const jpeg = canvas.toDataURL('image/jpeg', quality)
-      return jpeg.split(',')[1]
-    }
-    const full = render(1600, 0.85)
-    const thumb = render(320, 0.75)
-    return {
-      mediaType: 'image/jpeg',
-      data: thumb,
-      fullData: full,
-      name: file.name,
-      preview: `data:image/jpeg;base64,${thumb}`,
-    }
+  function isImageName(name) {
+    return /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(name || '')
   }
 
-  async function onPickFile(ev) {
-    const files = [...(ev.target.files || [])].slice(0, 4)
-    const next = []
-    for (const file of files) {
-      if (file.type.startsWith('image/')) next.push(await compress(file))
+  function isImageAttachment(att) {
+    if (att && att.mime && att.mime.startsWith('image/')) return true
+    return isImageName(att && att.name)
+  }
+
+  function parseInboxDelivery(text) {
+    const raw = String(text || '')
+    const markers = ['【手机发来的文件】', '【手机发来的图片】']
+    let idx = -1
+    for (const marker of markers) {
+      const at = raw.indexOf(marker)
+      if (at !== -1 && (idx === -1 || at < idx)) idx = at
     }
-    state.images = next
-    ev.target.value = ''
+    if (idx === -1) return { text: raw, paths: [] }
+    const before = raw.slice(0, idx).trim()
+    const firstNl = raw.indexOf('\n', idx)
+    const body = firstNl === -1 ? '' : raw.slice(firstNl + 1)
+    const paths = []
+    const leftover = []
+    for (const line of body.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      if (/^(\/|[A-Za-z]:[\\/]|\\\\)/.test(trimmed) && !/^(请立刻|会话内容|不要根据|不要在尚未|纯文本模型|原图已经|这就是你应该看)/.test(trimmed)) {
+        paths.push(trimmed)
+        continue
+      }
+      leftover.push(trimmed)
+    }
+    const extra = leftover.filter((line) => !/请立刻|会话内容|不要根据|不要在尚未|纯文本模型|read_image|这就是你应该看的版本|原图已经/.test(line))
+    return { text: [before, extra.join('\n')].filter(Boolean).join('\n').trim(), paths }
+  }
+
+  function bumpAttachProgress() {
+    if (attachProgressTimer) return
+    attachProgressTimer = setTimeout(() => {
+      attachProgressTimer = 0
+      if (state.view === 'chat') render()
+    }, 200)
+  }
+
+  function ensureAlbumInput() {
+    if (albumInput) return albumInput
+    albumInput = el('input', {
+      type: 'file',
+      accept: 'image/*',
+      multiple: true,
+      class: 'attach-input',
+      onchange: onPickFiles,
+    })
+    document.body.append(albumInput)
+    return albumInput
+  }
+
+  function ensureFileInput() {
+    if (fileInput) return fileInput
+    fileInput = el('input', {
+      type: 'file',
+      multiple: true,
+      class: 'attach-input',
+      onchange: onPickFiles,
+    })
+    document.body.append(fileInput)
+    return fileInput
+  }
+
+  function makeAttachment(file) {
+    const att = {
+      id: rpcId(),
+      file,
+      name: file.name || (file.type === 'image/png' ? 'image.png' : 'file'),
+      mime: file.type || '',
+      size: file.size,
+      status: 'pending',
+      progress: 0,
+      path: '',
+      error: '',
+      preview: '',
+      xhr: null,
+    }
+    if (isImageAttachment(att)) {
+      try { att.preview = URL.createObjectURL(file) } catch { /* ignore */ }
+    }
+    return att
+  }
+
+  function clearAttachments() {
+    for (const att of state.attachments) {
+      if (att.xhr) att.xhr.abort()
+      if (att.preview && ![...previewByPath.values()].includes(att.preview)) {
+        try { URL.revokeObjectURL(att.preview) } catch { /* ignore */ }
+      }
+    }
+    state.attachments = []
+  }
+
+  function removeAttachment(id) {
+    const att = state.attachments.find((row) => row.id === id)
+    if (!att) return
+    if (att.xhr) att.xhr.abort()
+    if (att.preview && lightboxNode && lightboxNode.dataset.src === att.preview) closeImageLightbox()
+    if (att.preview && !previewByPath.has(att.path)) {
+      try { URL.revokeObjectURL(att.preview) } catch { /* ignore */ }
+    }
+    state.attachments = state.attachments.filter((row) => row.id !== id)
     render()
+  }
+
+  function uploadOne(att, sessionId) {
+    return new Promise((resolve) => {
+      if (att.status === 'uploaded' && att.path) {
+        resolve(att)
+        return
+      }
+      att.status = 'uploading'
+      att.progress = 0
+      att.error = ''
+      const xhr = new XMLHttpRequest()
+      att.xhr = xhr
+      xhr.open('POST', '/mp/api/mobile.upload')
+      xhr.withCredentials = true
+      xhr.setRequestHeader('x-mp-filename', encodeURIComponent(att.name || 'file'))
+      xhr.setRequestHeader('x-mp-session-id', sessionId)
+      if (att.mime) xhr.setRequestHeader('x-mp-media-type', att.mime)
+      xhr.upload.onprogress = (ev) => {
+        if (!ev.lengthComputable) return
+        att.progress = ev.loaded / ev.total
+        bumpAttachProgress()
+      }
+      xhr.onload = () => {
+        att.xhr = null
+        let body
+        try { body = JSON.parse(xhr.responseText) } catch { body = null }
+        if (xhr.status === 403) {
+          att.status = 'failed'
+          att.error = body?.error?.code === 'forbidden'
+            ? '宿主端插件可能是旧版本：请重启 dsh web 后再试。'
+            : '此设备未配对：请在电脑端重新生成配对链接。'
+          resolve(att)
+          return
+        }
+        const value = body?.result?.ok ? body.result.value : null
+        if (xhr.status >= 200 && xhr.status < 300 && value && value.path) {
+          att.status = 'uploaded'
+          att.path = value.path
+          att.progress = 1
+          if (value.name) att.name = value.name
+          if (att.preview) previewByPath.set(value.path, att.preview)
+          resolve(att)
+          return
+        }
+        att.status = 'failed'
+        att.error = body?.result?.error?.message || body?.error?.message || `上传失败 HTTP ${xhr.status}`
+        resolve(att)
+      }
+      xhr.onerror = () => {
+        att.xhr = null
+        att.status = 'failed'
+        att.error = '网络错误，上传失败'
+        resolve(att)
+      }
+      xhr.onabort = () => {
+        att.xhr = null
+        if (att.status === 'uploading') {
+          att.status = 'failed'
+          att.error = '已取消'
+        }
+        resolve(att)
+      }
+      xhr.send(att.file)
+    })
+  }
+
+  function ensureUpload(att, sessionId) {
+    if (att.status === 'uploaded' && att.path) return Promise.resolve(att)
+    const existing = uploadWaiters.get(att.id)
+    if (existing) return existing
+    const pending = uploadOne(att, sessionId).finally(() => uploadWaiters.delete(att.id))
+    uploadWaiters.set(att.id, pending)
+    return pending
+  }
+
+  function onPickFiles(ev) {
+    const picked = [...(ev.target.files || [])]
+    ev.target.value = ''
+    const rejected = []
+    for (const file of picked) {
+      if (state.attachments.length >= MAX_ATTACHMENTS) {
+        rejected.push('一次最多 5 个文件')
+        break
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        rejected.push(`${file.name || '文件'} 超过 20MB`)
+        continue
+      }
+      if (file.size === 0) {
+        rejected.push(`${file.name || '文件'} 是空文件`)
+        continue
+      }
+      const att = makeAttachment(file)
+      state.attachments.push(att)
+      if (state.session) {
+        void ensureUpload(att, state.session.sessionId).then(() => {
+          if (state.view === 'chat') render()
+        })
+      }
+    }
+    state.sheet = null
+    if (rejected.length) state.error = rejected[0]
+    else state.error = ''
+    render()
+  }
+
+  function pickFromAlbum() {
+    ensureAlbumInput().click()
+  }
+
+  function pickFromFiles() {
+    ensureFileInput().click()
+  }
+
+  function attachSheet() {
+    const close = () => { state.sheet = null; render() }
+    return el('div', { class: 'sheet-backdrop', onclick: close }, [
+      el('div', {
+        class: 'sheet attach-sheet',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': '添加附件',
+        onclick: (ev) => { ev.stopPropagation() },
+      }, [
+        el('div', { class: 'sheet-handle' }),
+        el('button', { type: 'button', class: 'attach-sheet-item', onclick: pickFromAlbum }, ['相册']),
+        el('button', { type: 'button', class: 'attach-sheet-item', onclick: pickFromFiles }, ['文件']),
+        el('button', { type: 'button', class: 'attach-sheet-cancel', onclick: close }, ['取消']),
+      ]),
+    ])
   }
 
   /* ── image lightbox (pending composer + sent chat thumbs) ─────────────
    * The page viewport is user-scalable=no, so native pinch-zoom cannot
    * enlarge a 56px thumb. This overlay lives on document.body (outside
-   * #root) so live chat re-renders do not reset the zoom transform.
-   * Pending pics use the 1600px fullData; history only has 320px thumbs. */
+   * #root) so live chat re-renders do not reset the zoom transform. */
 
   let lightboxNode = null
   let lightboxEsc = null
   let lightboxCleanup = null
 
   function composerSrc(img) {
+    if (img && typeof img.preview === 'string' && img.preview !== '') return img.preview
     if (img && typeof img.fullData === 'string' && img.fullData !== '') {
       return `data:${img.mediaType || 'image/jpeg'};base64,${img.fullData}`
     }
-    return img && img.preview ? img.preview : ''
+    return ''
   }
 
   function closeImageLightbox() {
@@ -3931,10 +4239,8 @@
   }
 
   function removeComposerImage(index) {
-    const img = state.images[index]
-    if (img && lightboxNode && lightboxNode.dataset.src === composerSrc(img)) closeImageLightbox()
-    state.images = state.images.filter((_, i) => i !== index)
-    render()
+    const att = state.attachments[index]
+    if (att) removeAttachment(att.id)
   }
 
   async function loadSlashCatalog(sessionId) {
@@ -4040,11 +4346,13 @@
     if (!item || !message || message.kind !== 'user' || message.local) return false
     if (message.sourceKind !== undefined && message.sourceKind !== 'user') return false
     if (typeof message.seq === 'number' && typeof item.afterSeq === 'number' && message.seq <= item.afterSeq) return false
-    const echo = String(message.text || '').trim()
+    const rawEcho = String(message.text || '')
+    const echo = parseInboxDelivery(rawEcho).text.trim()
     const local = String(item.text || '').trim()
+    const delivered = rawEcho.includes('【手机发来的文件】') || rawEcho.includes('【手机发来的图片】')
     if (local && echo === local) return true
-    if (local && echo.includes(local) && ((item.images && item.images.length > 0) || echo.includes('【手机发来的图片】'))) return true
-    if (!local && item.images && item.images.length > 0 && ((message.images && message.images.length > 0) || echo.includes('【手机发来的图片】'))) return true
+    if (local && rawEcho.includes(local) && ((item.images && item.images.length > 0) || (item.fileCards && item.fileCards.length > 0) || delivered)) return true
+    if (!local && ((item.images && item.images.length > 0) || (item.fileCards && item.fileCards.length > 0) || (item.paths && item.paths.length > 0)) && ((message.images && message.images.length > 0) || delivered)) return true
     return false
   }
 
@@ -4119,18 +4427,17 @@
 
   async function send() {
     const text = state.draft.trim()
-    const images = state.images.slice()
-    if ((text === '' && images.length === 0) || !state.session) return
+    const pending = state.attachments.slice()
+    if ((text === '' && pending.length === 0) || !state.session) return
 
     const parsed = parseSlashLine(text)
-    const isCommand = Boolean(parsed && chat.slashCommands.some((row) => row.name === parsed.name) && images.length === 0)
+    const isCommand = Boolean(parsed && chat.slashCommands.some((row) => row.name === parsed.name) && pending.length === 0)
 
     state.error = ''
-    setDraft('')
-    state.images = []
     chatScroll.stick = true
 
     if (isCommand) {
+      setDraft('')
       state.sending = true
       render()
       focusComposer()
@@ -4139,11 +4446,11 @@
         const outcome = result && result.result
         if (outcome && outcome.kind === 'error' && outcome.text) {
           state.error = outcome.text
-          if (state.draft === '' && state.images.length === 0) setDraft(text)
+          if (state.draft === '' && state.attachments.length === 0) setDraft(text)
         }
       } catch (err) {
         state.error = String(err.message || err)
-        if (state.draft === '' && state.images.length === 0) setDraft(text)
+        if (state.draft === '' && state.attachments.length === 0) setDraft(text)
       } finally {
         state.sending = false
         render()
@@ -4152,29 +4459,46 @@
       return
     }
 
+    setDraft('')
+    state.sending = true
+    render()
+    focusComposer()
+
+    const sessionId = state.session.sessionId
+    await Promise.all(pending.map((att) => ensureUpload(att, sessionId)))
+    const ok = pending.filter((att) => att.status === 'uploaded' && att.path)
+    const leftover = pending.filter((att) => !(att.status === 'uploaded' && att.path))
+    state.attachments = leftover
+    if (leftover.some((att) => att.status === 'failed')) {
+      state.error = leftover.find((att) => att.error)?.error || '部分文件上传失败'
+    }
+
+    if (ok.length === 0 && text === '') {
+      state.sending = false
+      render()
+      focusComposer()
+      return
+    }
+
+    const note = ok.length ? `【手机发来的文件】\n${ok.map((att) => att.path).join('\n')}` : ''
+    const promptText = [text, note].filter(Boolean).join('\n\n')
     const last = chat.messages[chat.messages.length - 1]
     const item = {
       id: `local:${rpcId()}`,
       kind: 'user',
       text,
-      images: images.map((img) => img.preview).filter(Boolean),
+      images: ok.filter(isImageAttachment).map((att) => att.preview).filter(Boolean),
+      fileCards: ok.filter((att) => !isImageAttachment(att)).map((att) => ({ name: att.name, path: att.path })),
+      paths: ok.map((att) => att.path),
       time: Date.now(),
       local: true,
       localStatus: 'sending',
-      sessionId: state.session.sessionId,
+      sessionId,
       afterSeq: last && typeof last.seq === 'number' ? last.seq : -1,
-      content: [
-        ...(text ? [{ type: 'text', text }] : []),
-        ...images.map((img) => ({
-          type: 'image',
-          mediaType: img.mediaType,
-          data: img.data,
-          fullData: img.fullData,
-          name: img.name,
-        })),
-      ],
+      content: [{ type: 'text', text: promptText }],
     }
     chat.outbox.push(item)
+    state.sending = false
     render()
     focusComposer()
     await deliverOutbox(item)
@@ -4202,14 +4526,29 @@
         : m.localStatus === 'sent'
           ? '已发送'
           : formatTime(m.time)
+      const parsed = m.local ? { text: m.text || '', paths: m.paths || [] } : parseInboxDelivery(m.text)
+      const thumbs = []
+      if (m.images?.length) thumbs.push(...m.images)
+      if (!m.local) {
+        for (const path of parsed.paths) {
+          const preview = previewByPath.get(path)
+          if (preview && !thumbs.includes(preview)) thumbs.push(preview)
+        }
+      }
+      const fileCards = m.local
+        ? (m.fileCards || [])
+        : parsed.paths.filter((path) => !previewByPath.has(path)).map((path) => ({ name: basename(path), path }))
       return el('div', { class: cls.join(' ') }, [
-        m.text ? el('div', { class: 'chat-msg-text' }, [m.text]) : null,
-        m.images?.length ? el('div', { class: 'chat-msg-images' }, m.images.map((src) => el('button', {
+        parsed.text ? el('div', { class: 'chat-msg-text' }, [parsed.text]) : null,
+        thumbs.length ? el('div', { class: 'chat-msg-images' }, thumbs.map((src) => el('button', {
           type: 'button',
           class: 'chat-msg-image-btn',
           'aria-label': '放大查看图片',
           onclick: () => openImageLightbox(src),
         }, [el('img', { src, alt: '' })]))) : null,
+        fileCards.length ? el('div', { class: 'chat-msg-files' }, fileCards.map((file) => el('div', { class: 'chat-msg-file' }, [
+          el('span', { class: 'chat-msg-file-name' }, [file.name || '文件']),
+        ]))) : null,
         m.localStatus === 'failed'
           ? el('button', {
               type: 'button',
@@ -4561,21 +4900,43 @@
     for (const approval of chat.approvals) scroller.append(renderApprovalPanel(approval))
     for (const group of chat.questions) scroller.append(renderQuestionPanel(group))
 
-    const pics = state.images.length
-      ? el('div', { class: 'composer-pics' }, state.images.map((img, idx) => el('div', { class: 'composer-pic' }, [
-          el('button', {
-            type: 'button',
-            class: 'composer-pic-open',
-            'aria-label': img.name ? `放大查看 ${img.name}` : '放大查看即将发送的图片',
-            onclick: () => openImageLightbox(composerSrc(img)),
-          }, [el('img', { src: img.preview, alt: img.name || '' })]),
-          el('button', {
+    const pics = state.attachments.length
+      ? el('div', { class: 'composer-pics' }, state.attachments.map((att) => {
+          const remove = el('button', {
             type: 'button',
             class: 'composer-pic-remove',
-            'aria-label': '移除图片',
-            onclick: (ev) => { ev.stopPropagation(); removeComposerImage(idx) },
-          }, ['×']),
-        ])))
+            'aria-label': '移除附件',
+            onclick: (ev) => { ev.stopPropagation(); removeAttachment(att.id) },
+          }, ['×'])
+          const overlay = att.status === 'uploading'
+            ? el('div', { class: 'composer-pic-progress' }, [`${Math.round((att.progress || 0) * 100)}%`])
+            : att.status === 'failed'
+              ? el('div', { class: 'composer-pic-progress' }, ['失败'])
+              : null
+          if (isImageAttachment(att) && att.preview) {
+            return el('div', { class: `composer-pic${att.status === 'failed' ? ' is-failed' : ''}` }, [
+              el('button', {
+                type: 'button',
+                class: 'composer-pic-open',
+                'aria-label': att.name ? `放大查看 ${att.name}` : '放大查看即将发送的图片',
+                onclick: () => openImageLightbox(att.preview),
+              }, [el('img', { src: att.preview, alt: att.name || '' })]),
+              overlay,
+              remove,
+            ])
+          }
+          return el('div', { class: `composer-file${att.status === 'failed' ? ' is-failed' : ''}` }, [
+            el('div', { class: 'composer-file-name' }, [att.name || '文件']),
+            el('div', { class: 'composer-file-meta' }, [
+              att.status === 'uploading'
+                ? `上传 ${Math.round((att.progress || 0) * 100)}%`
+                : att.status === 'failed'
+                  ? (att.error || '失败')
+                  : formatBytes(att.size),
+            ]),
+            remove,
+          ])
+        }))
       : null
 
     return {
@@ -4597,7 +4958,7 @@
       todos: renderTodoDock(standingTodos()),
       pics,
       slash: renderSlashMenu(),
-      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
+      sheet: state.sheet === 'attach' ? attachSheet() : state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
     }
   }
 
@@ -4702,16 +5063,15 @@
         el('h1', { class: 'mobile-title' }, ['工作区']),
         el('div', { class: 'mobile-header-actions' }, [
           state.todayAvailable ? todayButton() : null,
+          isStandalone() ? null : pwaButton(),
           themeToggle(),
         ]),
       ]),
     ])
-    if (!isStandalone()) {
-      page.append(el('p', { class: 'mobile-pwa-hint' }, ['Safari 分享 → 添加到主屏幕，下次可以当 App 打开（需 HTTPS）。']))
-    }
     const quotaBar = renderQuotaBar()
     if (quotaBar) page.append(quotaBar)
     if (state.sheet === 'quota') page.append(quotaSheet())
+    if (state.sheet === 'pwa') page.append(pwaSheet())
     if (state.createError) {
       page.append(el('p', { class: 'mobile-error' }, [state.createError]))
     }
@@ -4987,9 +5347,33 @@
     return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
   }
 
+  function isSecurePage() {
+    return window.isSecureContext === true
+  }
+
+  function isAppleMobile() {
+    const ua = navigator.userAgent || ''
+    if (/iPad|iPhone|iPod/.test(ua)) return true
+    return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1
+  }
+
+  let deferredInstallPrompt = null
+
   function registerPwa() {
-    if (!navigator.serviceWorker) return
-    navigator.serviceWorker.register('/mp/sw.js', { scope: '/mp/', updateViaCache: 'none' }).catch(() => {})
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.register('/mp/sw.js', { scope: '/mp/', updateViaCache: 'none' }).catch(() => {})
+    }
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault()
+      deferredInstallPrompt = event
+    })
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null
+      if (state.sheet === 'pwa') {
+        state.sheet = null
+        render()
+      }
+    })
   }
 
   applyTheme()

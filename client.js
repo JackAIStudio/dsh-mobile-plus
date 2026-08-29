@@ -282,7 +282,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'mp-header' },
           h('div', { className: 'mp-heading' },
             h('h2', { className: 'mp-title' }, ['手机发图远程']),
-            h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与图片 · 不影响原 /m/'])),
+            h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件 · 不影响原 /m/'])),
           h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机发图远程面板', onClick: onClose },
             h(IconClose16, { size: 14 }))),
 
@@ -357,7 +357,7 @@ window.__ModuleLoader__.load({
                     }, ['取消配对']))))),
 
         error ? h('p', { className: 'mp-error' }, [error]) : null,
-        h('p', { className: 'mp-note' }, ['手机端发送的图片会写入工作区的 .dsh-mobile-inbox/，最新一张为 latest.jpg']))
+        h('p', { className: 'mp-note' }, ['手机端发送的文件会写入工作区的 .dsh-mobile-inbox/，会话里只带本机路径']))
     }
 
     /** Sidebar foot entry: icon-only remote logo + the pairing panel.
@@ -462,7 +462,7 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'mp-header' },
                     h('div', { className: 'mp-heading' },
                       h('h2', { className: 'mp-title' }, ['手机发图远程']),
-                      h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与图片 · 不影响原 /m/'])),
+                      h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件 · 不影响原 /m/'])),
                     h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机发图远程面板', onClick: closePanel },
                       h(IconClose16, { size: 14 }))),
                   error ? h('p', { className: 'mp-error' }, [error]) : null,

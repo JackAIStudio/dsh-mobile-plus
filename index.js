@@ -1,13 +1,13 @@
 /**
- * dsh-mobile-plus — independent mobile remote with text + image prompts.
+ * dsh-mobile-plus — independent mobile remote with text + file prompts.
  * Own routes under /mp. Does not patch @linxin666/dsh-remote-web-ui.
  */
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, extname, join, posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { makeQrSvg } from './qrcodegen.js'
 
@@ -21,6 +21,7 @@ const IDLE_MS = 7 * 24 * 60 * 60 * 1000
 /** A paired device counts as offline after this long without a touch. */
 const OFFLINE_MS = 90 * 1000
 const MAX_BODY = 12 * 1024 * 1024
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 const ALLOW = new Set([
   'workspace.list',
   'workspace.create',
@@ -155,6 +156,99 @@ function deviceId() {
 
 function svgDataUri(svg) {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
+}
+
+/**
+ * Phone directory browser needs `host.listDirectory` (kind: browse).
+ * Desktop DSH on a loopback Mac/Windows bind composes the native OS
+ * chooser instead, and apiproxy then rejects listDirectory. Mobile is
+ * always remote, so we serve one listing ourselves (Node stdlib only —
+ * this plugin is `link:`-installed and must not import @deepseek-ai/*).
+ */
+const DIR_MAX_ENTRIES = 1000
+
+function fullyQualifiedPath(path, platform = process.platform) {
+  return platform === 'win32'
+    ? win32.isAbsolute(path) && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/]+[^\\/]+)/.test(path)
+    : posix.isAbsolute(path)
+}
+
+function ancestryCrumbs(target) {
+  const crumbs = []
+  let current = target
+  for (;;) {
+    const parent = dirname(current)
+    crumbs.unshift({
+      name: parent === current ? current : basename(current),
+      path: current,
+      hidden: false,
+    })
+    if (parent === current) return crumbs
+    current = parent
+  }
+}
+
+function failDirectory(code, path, message) {
+  return { result: { ok: false, error: { code, message, details: { path } } } }
+}
+
+async function listHostDirectory(payload, signal) {
+  const home = homedir()
+  const requested = payload && typeof payload.path === 'string' ? payload.path : undefined
+  if (requested !== undefined && !fullyQualifiedPath(requested)) {
+    return failDirectory('directory-unreadable', requested, `cannot list "${requested}": not a fully qualified path`)
+  }
+  const target = resolve(requested ?? home)
+  try {
+    signal?.throwIfAborted()
+    const dirents = await readdir(target, { withFileTypes: true })
+    signal?.throwIfAborted()
+    const candidates = dirents
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .sort((a, b) => a.name.localeCompare(b.name))
+    const entries = []
+    let truncated = false
+    for (const dirent of candidates) {
+      signal?.throwIfAborted()
+      if (entries.length >= DIR_MAX_ENTRIES) {
+        truncated = true
+        break
+      }
+      const child = join(target, dirent.name)
+      let enterable = dirent.isDirectory()
+      if (!enterable && dirent.isSymbolicLink()) {
+        try {
+          enterable = (await stat(child)).isDirectory()
+        } catch {
+          if (signal?.aborted) {
+            const reason = signal.reason
+            throw reason instanceof Error ? reason : new Error(String(reason))
+          }
+          continue
+        }
+      }
+      if (!enterable) continue
+      entries.push({ name: dirent.name, path: child, hidden: dirent.name.startsWith('.') })
+    }
+    return {
+      result: {
+        ok: true,
+        value: {
+          path: target,
+          home,
+          crumbs: ancestryCrumbs(target),
+          entries,
+          truncated,
+        },
+      },
+    }
+  } catch (error) {
+    if (signal?.aborted) {
+      return { result: { ok: false, error: { code: 'cancelled', message: 'directory listing was aborted', details: {} } } }
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    return failDirectory('directory-unreadable', target, `cannot list ${target}: ${message}`)
+  }
 }
 
 /** Number of paired devices that are still inside the idle window (desktop status). */
@@ -506,26 +600,132 @@ export function apply(ctx, config = {}) {
         writeFileSync(join(dir, `latest.${ext}`), Buffer.from(raw, 'base64'))
       }
     })
-    const note = [
-      '【手机发来的图片】本地原图路径如下（按发送顺序，最后一条是最新）：',
-      ...paths,
-      '请立刻用 read_image 读取这些路径后再回答。',
-      '会话内容里附带的 image 只是给界面预览的缩略图，不要根据缩略图识别、读字或下结论。原图已经过一次压缩，这就是你应该看的版本。',
-      '不要在尚未调用 read_image 时说看不到图。若工具失败、路径不存在、或当前模型不支持图片输入：直接说明具体原因，不要编造图片内容；纯文本模型请让用户换成支持看图的模型。',
-    ].join('\n')
-    // 传给模型的内容只保留缩略图：剔除 fullData（完整 base64 不再进会话日志，
-    // 历史传输从每张 ~530KB 降到 ~25KB，打开会话/轮询回落显著变快）。
+    const note = ['【手机发来的文件】', ...paths].join('\n')
+    // 传给模型的内容只保留缩略图：剔除 fullData（完整 base64 不再进会话日志）。
     const rest = payload.content
-      .filter((part) => !(part && part.type === 'text' && String(part.text || '').includes('【手机发来的图片】')))
+      .filter((part) => !(part && part.type === 'text' && String(part.text || '').includes('【手机发来的')))
       .map((part) => {
         if (!part || part.type !== 'image' || typeof part.fullData !== 'string') return part
         const { fullData, ...slim } = part
         return slim
       })
+    const texts = rest.filter((part) => part && part.type === 'text')
+    const others = rest.filter((part) => !(part && part.type === 'text'))
     return {
       ...payload,
-      content: [{ type: 'text', text: note }, ...rest],
+      content: [...texts, { type: 'text', text: note }, ...others],
     }
+  }
+
+  async function readRawBody(req, maxBytes) {
+    const chunks = []
+    let size = 0
+    for await (const chunk of req) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      size += buf.length
+      if (size > maxBytes) throw new Error('body too large')
+      chunks.push(buf)
+    }
+    return Buffer.concat(chunks)
+  }
+
+  function decodeHeaderFilename(raw) {
+    if (typeof raw !== 'string' || raw === '') return 'file'
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
+  }
+
+  function safeBasename(raw) {
+    let base = basename(String(raw || '').replace(/\\/g, '/'))
+    base = base.replace(/[\u0000-\u001f\u007f]/g, '').replace(/[/\\]/g, '')
+    if (base === '' || base === '.' || base === '..') base = 'file'
+    if (base.length > 120) {
+      const ext = extname(base)
+      const keep = Math.max(1, 120 - ext.length)
+      base = `${base.slice(0, keep)}${ext}`
+    }
+    return base
+  }
+
+  function uniquePath(filePath) {
+    if (!existsSync(filePath)) return filePath
+    const ext = extname(filePath)
+    const stem = ext ? filePath.slice(0, -ext.length) : filePath
+    for (let i = 2; i < 100; i += 1) {
+      const next = `${stem}-${i}${ext}`
+      if (!existsSync(next)) return next
+    }
+    return `${stem}-${Date.now()}${ext}`
+  }
+
+  function sipsToJpeg(srcPath, destPath) {
+    return new Promise((resolve) => {
+      execFile('sips', ['-s', 'format', 'jpeg', srcPath, '--out', destPath], { timeout: 20_000 }, (error) => {
+        resolve(!error && existsSync(destPath))
+      })
+    })
+  }
+
+  async function handleUpload(req, res) {
+    if (req.method !== 'POST') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    if (requirePairing && !touch(req)) {
+      json(res, 403, { ok: false, error: { code: 'unpaired', message: 'not paired' } })
+      return
+    }
+    const sessionId = typeof req.headers['x-mp-session-id'] === 'string' ? req.headers['x-mp-session-id'].trim() : ''
+    if (sessionId === '') {
+      json(res, 400, { ok: false, error: { code: 'bad-request', message: 'missing sessionId' } })
+      return
+    }
+    const cwd = await sessionCwd(sessionId)
+    if (!cwd) {
+      json(res, 400, { ok: false, error: { code: 'bad-request', message: '找不到会话工作区' } })
+      return
+    }
+    let buf
+    try {
+      buf = await readRawBody(req, MAX_UPLOAD_BYTES)
+    } catch {
+      json(res, 400, { ok: false, error: { code: 'too-large', message: '文件不能超过 20MB' } })
+      return
+    }
+    if (buf.length === 0) {
+      json(res, 400, { ok: false, error: { code: 'bad-request', message: '空文件' } })
+      return
+    }
+    const rawName = decodeHeaderFilename(req.headers['x-mp-filename'])
+    const mediaType = typeof req.headers['x-mp-media-type'] === 'string'
+      ? req.headers['x-mp-media-type'].slice(0, 120)
+      : ''
+    const dir = join(cwd, '.dsh-mobile-inbox')
+    await mkdir(dir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    let dest = uniquePath(join(dir, `${stamp}-${safeBasename(rawName)}`))
+    await writeFile(dest, buf)
+    const looksHeic = /\.(heic|heif)$/i.test(dest) || /image\/hei[cf]/i.test(mediaType)
+    if (looksHeic) {
+      const converted = uniquePath(dest.replace(/\.(heic|heif)$/i, '.jpg'))
+      const ok = await sipsToJpeg(dest, converted)
+      if (ok) {
+        await rm(dest, { force: true })
+        dest = converted
+      }
+    }
+    let bytes = buf.length
+    try {
+      bytes = (await stat(dest)).size
+    } catch { /* keep buf.length */ }
+    json(res, 200, {
+      type: 'server-response',
+      result: { ok: true, value: { path: dest, name: basename(dest), bytes } },
+    })
   }
 
   const THUMB_MAX_BYTES = 40 * 1024 // 超过即视为"全图"（新缩略图 ~25KB，不处理）
@@ -718,7 +918,16 @@ export function apply(ctx, config = {}) {
     const api = ctx.apiProxy
     if (method === 'workspace.list') return wrap(rpcId, await api.workspace.list({ rpcId, payload }))
     if (method === 'workspace.create') return wrap(rpcId, await api.workspace.create({ rpcId, payload }))
-    if (method === 'host.listDirectory') return wrap(rpcId, await api.host.listDirectory({ rpcId, payload }))
+    if (method === 'host.listDirectory') {
+      try {
+        const viaHost = await api.host.listDirectory({ rpcId, payload }, signal)
+        if (viaHost.result?.ok) return wrap(rpcId, viaHost)
+        if (viaHost.result?.error?.code !== 'directory-picker-unavailable') return wrap(rpcId, viaHost)
+      } catch {
+        /* native picker, missing method — fall through to local listing */
+      }
+      return wrap(rpcId, await listHostDirectory(payload, signal))
+    }
     if (method === 'agentPreset.list') return wrap(rpcId, await api.agentPresets.list({ rpcId, payload }))
     if (method === 'session.create') return wrap(rpcId, await api.sessions.create({ rpcId, payload }))
     if (method === 'session.history') {
@@ -842,6 +1051,10 @@ export function apply(ctx, config = {}) {
     }
     if (pathname === `${PREFIX}/api/events.host`) {
       await handleHostEvents(req, res)
+      return
+    }
+    if (pathname === `${PREFIX}/api/mobile.upload`) {
+      await handleUpload(req, res)
       return
     }
     if (req.method !== 'POST') {
