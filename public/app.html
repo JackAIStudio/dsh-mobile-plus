@@ -84,11 +84,12 @@ body {
 
 /* Pin the document so iOS/Android pull-to-refresh cannot grab the viewport.
    Inner panes (.chat-scroll, .mobile-list, …) are the only scrollers.
-   pinViewport() sets height/width/top/left so this box tracks the visual
-   viewport (keyboard open → composer stays glued above the keys). Do not
-   use transform: a transformed ancestor hides the iOS caret and cancels
-   pinyin composition. Do not use inset:0 here: bottom:0 fights the JS
-   height on iOS. */
+   Standalone (加到主屏幕) also has no Safari chrome refresh; the header
+   reload button is the stuck-app fallback. pinViewport() sets
+   height/width/top/left so this box tracks the visual viewport (keyboard
+   open → composer stays glued above the keys). Do not use transform: a
+   transformed ancestor hides the iOS caret and cancels pinyin composition.
+   Do not use inset:0 here: bottom:0 fights the JS height on iOS. */
 body {
   position: fixed;
   top: 0;
@@ -126,6 +127,7 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 10px;
   background: color-mix(in srgb, var(--m-bg) 88%, transparent);
@@ -188,12 +190,27 @@ body {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex: none;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .mobile-header-actions .mobile-theme-toggle {
   margin-left: 0;
+}
+
+.mobile-header-actions .chat-quota {
+  padding: 0;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mobile-header-actions .chat-quota-chip {
+  height: 24px;
+  padding: 0 8px;
+  flex: none;
 }
 
 .mobile-theme-toggle {
@@ -2059,10 +2076,23 @@ body {
 /* ── installed-app pairing ───────────────────────────────────────────── */
 
 .mobile-pair {
-  min-height: 100dvh;
+  /* Fill the already-pinned visual viewport. 100dvh is the layout viewport
+     (keyboard still counted), which centers the field behind the keys. */
+  min-height: 0;
+  height: 100%;
   display: grid;
   place-items: center;
+  align-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 24px;
+}
+
+html[data-keyboard='1'] .mobile-pair {
+  place-items: start center;
+  align-content: start;
+  padding: 8px 16px 12px;
 }
 
 .mobile-pairCard {
@@ -2076,15 +2106,47 @@ body {
   box-shadow: var(--m-shadow-raise);
 }
 
+html[data-keyboard='1'] .mobile-pairCard {
+  gap: 8px;
+  padding: 16px;
+}
+
+html[data-keyboard='1'] .mobile-pair .pair-logo {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 0;
+}
+
+.mobile-pairToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .mobile-pairLabel {
   color: var(--m-text-secondary);
   font-size: 13px;
   font-weight: 600;
 }
 
+.mobile-pairPaste {
+  flex: none;
+  margin: 0;
+  padding: 4px 0 4px 8px;
+  border: none;
+  background: none;
+  color: var(--m-accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .mobile-pairInput {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   box-sizing: border-box;
   padding: 9px 12px;
   border: 1px solid var(--m-border);
@@ -2092,7 +2154,11 @@ body {
   background: var(--m-bg-input);
   color: var(--m-text);
   font: inherit;
+  /* iOS zooms any field < 16px, which fights pinViewport and hides paste. */
+  font-size: 16px;
   outline: none;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .mobile-pairInput:focus-visible {
@@ -2382,13 +2448,15 @@ body {
 }
 .pair-logo { display: block; width: 56px; height: 56px; margin: 0 auto 4px; border-radius: 14px; }
 .mobile-pairCard { text-align: center; }
-.mobile-pairCard form .mobile-pairLabel, .mobile-pairCard .mobile-pairInput { text-align: left; }
+.mobile-pairCard .mobile-pairLabel,
+.mobile-pairCard .mobile-pairInput,
+.mobile-pairCard .mobile-pairHint { text-align: left; }
 .pad16 { padding: 16px; }
 
   </style>
 </head>
 <body>
   <div id="root"></div>
-  <script src="/mp/app.js?v=0.2.17"></script>
+  <script src="/mp/app.js?v=0.3.1"></script>
 </body>
 </html>

@@ -16,8 +16,12 @@ export const inject = ['webServer', 'apiProxy', 'commands', 'agents']
 
 const PREFIX = '/mp'
 const COOKIE = 'mp_device'
+/** One-time QR / pairing-link token. Not the device session. */
 const TOKEN_TTL_MS = 2 * 60 * 60 * 1000
+/** Forget a paired device after this long without a request. */
 const IDLE_MS = 7 * 24 * 60 * 60 * 1000
+/** Device cookie Max-Age / Expires. Sliding: re-set on each /mp document load. */
+const COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 365
 /** A paired device counts as offline after this long without a touch. */
 const OFFLINE_MS = 90 * 1000
 const MAX_BODY = 12 * 1024 * 1024
@@ -373,16 +377,25 @@ export function apply(ctx, config = {}) {
   }
 
   const setDeviceCookie = (resHeaders, secret, req) => {
+    const expires = new Date(Date.now() + COOKIE_MAX_AGE_SEC * 1000).toUTCString()
     const parts = [
       `${COOKIE}=${secret}`,
       `Path=${PREFIX}`,
       'HttpOnly',
       'SameSite=Lax',
-      `Max-Age=${60 * 60 * 24 * 365}`,
+      `Max-Age=${COOKIE_MAX_AGE_SEC}`,
+      `Expires=${expires}`,
     ]
     if (isHttps(req)) parts.push('Secure')
     resHeaders['set-cookie'] = parts.join('; ')
     return resHeaders
+  }
+
+  /** Re-echo a valid device cookie on a response (Safari persists document Set-Cookie). */
+  const cookieHeadersIfPaired = (req) => {
+    const found = findByCookie(cookieValue(req.headers.cookie, COOKIE))
+    if (!found) return {}
+    return setDeviceCookie({}, deviceCookie(found.id, found.row), req)
   }
 
   const handleSetup = (req, res) => {
@@ -394,7 +407,22 @@ export function apply(ctx, config = {}) {
     readPublic('setup.html', 'text/html; charset=utf-8')(req, res)
   }
 
-  const handleApp = readPublic('app.html', 'text/html; charset=utf-8')
+  /**
+   * Serve the mobile shell. If this request already carries a valid device
+   * cookie, Set-Cookie it again on the HTML response. iOS Safari often keeps
+   * fetch/XHR cookies only in memory; a top-level document Set-Cookie is what
+   * actually lands in the on-disk cookie jar.
+   */
+  const handleApp = (req, res) => {
+    const extra = requirePairing && touch(req) ? cookieHeadersIfPaired(req) : {}
+    const body = readFileSync(join(PUBLIC, 'app.html'))
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      ...extra,
+    })
+    res.end(body)
+  }
   const handleAppJs = readPublic('app.js', 'text/javascript; charset=utf-8')
 
   const handleIssue = async (req, res) => {
@@ -474,6 +502,7 @@ export function apply(ctx, config = {}) {
       return
     }
     const paired = requirePairing ? touch(req) : true
+    const extra = paired && requirePairing ? cookieHeadersIfPaired(req) : {}
     if (!isLoopback(req)) {
       json(res, 200, {
         ok: true,
@@ -482,7 +511,7 @@ export function apply(ctx, config = {}) {
         onlineCount: 0,
         devices: [],
         publicBaseUrl,
-      })
+      }, extra)
       return
     }
     const alive = aliveDevices(devices)
@@ -502,7 +531,7 @@ export function apply(ctx, config = {}) {
       onlineCount: rows.filter((row) => row.online).length,
       devices: rows,
       publicBaseUrl,
-    })
+    }, extra)
   }
 
   /** Stop remote access: drop the active token and every paired device. */

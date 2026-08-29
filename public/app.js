@@ -205,15 +205,15 @@
     ignoringPop = false
   }
 
-  function stripPairQuery() {
+  /**
+   * Full navigation after pairing so the next `/mp/` HTML response can
+   * re-set `mp_device` on a document (Safari persists that; fetch Set-Cookie
+   * often stays in-memory and vanishes when the process is killed).
+   */
+  function reloadPaired() {
     const url = new URL(window.location.href)
-    if (!url.searchParams.has('pair')) return
     url.searchParams.delete('pair')
-    ignoringPop = true
-    try {
-      history.replaceState(history.state || {}, '', `${url.pathname}${url.search}${url.hash}`)
-    } catch { /* ignore */ }
-    ignoringPop = false
+    window.location.replace(`${url.pathname}${url.search}${url.hash}`)
   }
 
   function locationModeFor(opts) {
@@ -920,6 +920,9 @@
     }, { passive: true, capture: true })
     document.addEventListener('touchmove', (ev) => {
       if (ev.touches.length !== 1) return
+      // Let iOS keep long-press Paste / caret drag on fields. preventDefault
+      // on capture here otherwise swallows the callout.
+      if (ev.target && ev.target.closest && ev.target.closest('input, textarea, [contenteditable="true"]')) return
       const dy = ev.touches[0].clientY - startY
       const pane = scrollableAncestor(ev.target)
       if (!pane) {
@@ -987,7 +990,13 @@
     window.addEventListener('resize', schedule)
     window.addEventListener('scroll', schedule, { passive: true })
     window.addEventListener('orientationchange', afterKeyboard)
-    window.addEventListener('focusin', afterKeyboard)
+    window.addEventListener('focusin', (ev) => {
+      // Resizing the fixed body during pair-input focusin makes iOS blur the
+      // field and dismiss the keyboard (then there is nothing to paste into).
+      const t = ev.target
+      if (t && t.classList && t.classList.contains('mobile-pairInput')) return
+      afterKeyboard()
+    })
     window.addEventListener('focusout', afterKeyboard)
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', schedule)
@@ -1031,6 +1040,30 @@
         ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"/></svg>'
         : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>'),
     ])
+  }
+
+  /**
+   * Full document reload. Standalone (加到主屏幕) has no Safari chrome and
+   * no pull-to-refresh; this is the stuck-app fallback from any view.
+   */
+  function reloadApp() {
+    window.location.reload()
+  }
+
+  function reloadButton() {
+    return el('button', {
+      type: 'button',
+      class: 'mobile-theme-toggle mobile-reload-btn',
+      'aria-label': '刷新页面',
+      title: '刷新页面',
+      onclick: () => reloadApp(),
+    }, [
+      headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>'),
+    ])
+  }
+
+  function headerActions(nodes) {
+    return el('div', { class: 'mobile-header-actions' }, nodes.filter(Boolean))
   }
 
   /** Workspace-list header: calendar logo only, same 32px circle as theme toggle. */
@@ -4713,6 +4746,25 @@
               el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
             ]),
           ]),
+          el('div', { class: 'sheet-section' }, [
+            el('div', { class: 'sheet-section-title' }, ['外观']),
+            settingsToggleRow('深色模式', '只作用于这台手机上的远程页', storedTheme() === 'dark', () => toggleTheme()),
+          ]),
+          el('div', { class: 'sheet-section' }, [
+            el('div', { class: 'sheet-section-title' }, ['页面']),
+            el('button', {
+              type: 'button',
+              class: 'sheet-nav-row',
+              'aria-label': '刷新页面',
+              onclick: () => reloadApp(),
+            }, [
+              el('div', { class: 'sheet-toggle-copy' }, [
+                el('span', { class: 'sheet-toggle-title' }, ['刷新页面']),
+                el('span', { class: 'sheet-toggle-desc' }, ['加到主屏幕后没有下拉刷新，卡住时点这里']),
+              ]),
+              el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['↻']),
+            ]),
+          ]),
         ]),
       ]),
     ])
@@ -4946,8 +4998,10 @@
           class: 'mobile-title mobile-titleInline',
           title: state.session ? sessionTitle(state.session) : '聊天',
         }, [state.session ? sessionTitle(state.session) : '聊天']),
-        themeToggle(),
-        settingsButton(),
+        headerActions([
+          reloadButton(),
+          settingsButton(),
+        ]),
       ]),
       error: state.error ? el('p', { class: 'mobile-error mobile-pad' }, [state.error]) : null,
       status: state.running ? el('div', { class: 'chat-turn-status' }, [
@@ -4999,11 +5053,12 @@
       el('header', { class: 'mobile-header' }, [
         el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack({ view: 'workspaces' }) }, ['‹']),
         el('h1', { class: 'mobile-title mobile-titleInline' }, [old ? workspaceTitle(old) : '会话']),
-        themeToggle(),
+        headerActions([
+          renderQuotaBar(),
+          reloadButton(),
+        ]),
       ]),
     ])
-    const quotaBar = renderQuotaBar()
-    if (quotaBar) page.append(quotaBar)
     if (state.sheet === 'quota') page.append(quotaSheet())
 
     if (state.loading && state.sessions.length === 0 && !state.error) {
@@ -5060,16 +5115,16 @@
   function renderWorkspaces() {
     const page = el('div', { class: 'mobile' }, [
       el('header', { class: 'mobile-header' }, [
-        el('h1', { class: 'mobile-title' }, ['工作区']),
-        el('div', { class: 'mobile-header-actions' }, [
+        el('h1', { class: 'mobile-title mobile-titleInline' }, ['工作区']),
+        headerActions([
+          renderQuotaBar(),
           state.todayAvailable ? todayButton() : null,
           isStandalone() ? null : pwaButton(),
+          reloadButton(),
           themeToggle(),
         ]),
       ]),
     ])
-    const quotaBar = renderQuotaBar()
-    if (quotaBar) page.append(quotaBar)
     if (state.sheet === 'quota') page.append(quotaSheet())
     if (state.sheet === 'pwa') page.append(pwaSheet())
     if (state.createError) {
@@ -5174,18 +5229,44 @@
   }
 
   function renderPair() {
+    const hint = el('p', { class: 'mobile-muted mobile-pairHint', role: 'status' }, [
+      state.dirError || '粘贴桌面端复制的配对链接以连接此设备。',
+    ])
+    if (state.dirError) hint.className = 'mobile-error mobile-pairHint'
     const input = el('input', {
-      id: 'mobile-pair-link', class: 'mobile-pairInput',
+      id: 'mobile-pair-link',
+      class: 'mobile-pairInput',
+      type: 'text',
+      inputmode: 'url',
+      enterkeyhint: 'go',
       placeholder: 'https://your-host/mp/?pair=…',
       autocomplete: 'off',
+      autocapitalize: 'off',
+      autocorrect: 'off',
+      spellcheck: 'false',
     })
-    const form = el('form', { class: 'mobile-pairCard' }, [
+    const pasteInto = async () => {
+      let text = ''
+      try { text = String(await navigator.clipboard.readText() || '').trim() } catch { /* iOS may deny */ }
+      if (text) {
+        input.value = text
+        hint.className = 'mobile-muted mobile-pairHint'
+        hint.textContent = '已粘贴，点配对继续。'
+        return
+      }
+      input.focus()
+      hint.className = 'mobile-muted mobile-pairHint'
+      hint.textContent = '请长按输入框，选择粘贴。'
+    }
+    const form = el('form', { class: 'mobile-pairCard', novalidate: true }, [
       el('img', { class: 'pair-logo', src: '/mp/logo.svg', alt: '' }),
       el('h1', { class: 'mobile-title', id: 'mobile-pair-title' }, ['设备配对']),
-      el('p', { class: 'mobile-muted' }, ['粘贴桌面端复制的配对链接以连接此设备。']),
-      el('label', { class: 'mobile-pairLabel', for: 'mobile-pair-link' }, ['配对链接']),
+      hint,
+      el('div', { class: 'mobile-pairToolbar' }, [
+        el('label', { class: 'mobile-pairLabel', for: 'mobile-pair-link' }, ['配对链接']),
+        el('button', { type: 'button', class: 'mobile-pairPaste', onclick: () => { void pasteInto() } }, ['粘贴']),
+      ]),
       input,
-      state.dirError ? el('p', { class: 'mobile-error', role: 'alert' }, [state.dirError]) : null,
       el('button', { type: 'submit', class: 'mobile-new mobile-pairSubmit', disabled: state.creating }, ['配对']),
     ])
     form.addEventListener('submit', async (ev) => {
@@ -5205,8 +5286,7 @@
         render()
         return
       }
-      stripPairQuery()
-      await enterApp()
+      reloadPaired()
     })
     return el('main', { class: 'mobile mobile-pair' }, [form])
   }
@@ -5280,6 +5360,7 @@
       rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [
         el('p', { class: 'mobile-error', role: 'alert' }, [state.error || '无法连接到运行中的 DSH host。']),
         el('button', { type: 'button', class: 'mobile-new', onclick: () => void boot() }, ['重试']),
+        el('button', { type: 'button', class: 'mobile-button', onclick: () => reloadApp() }, ['刷新页面']),
       ]))
       return
     }
@@ -5329,8 +5410,7 @@
         if (message) {
           state.dirError = message
         } else {
-          stripPairQuery()
-          await enterApp()
+          reloadPaired()
           return
         }
       }
