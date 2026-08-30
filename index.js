@@ -590,6 +590,13 @@ export function apply(ctx, config = {}) {
     if (frame.type === 'server-request' && frame.payload && typeof frame.payload === 'object') {
       return { rpcId: typeof frame.rpcId === 'string' ? frame.rpcId : '', payload: frame.payload }
     }
+    if (typeof frame.rpcId === 'string' && frame.payload && typeof frame.payload === 'object' && typeof frame.payload.type === 'string') {
+      // 宿主 events.mux / events.host 内部迭代器产出窄格式 { rpcId, payload }（无外层
+      // type；0.1.1-rc.2 起如此）。PC 端 fetch client 在 readSse 里先 serverRequestSchema
+      // 再 frameSchema 双层解析；这里同样解包，否则 pendingTracker 收不到任何帧，
+      // mobile.pending 永远为空、mobile.respond 报 not-pending。
+      return { rpcId: frame.rpcId, payload: frame.payload }
+    }
     if (typeof frame.type === 'string') {
       return { rpcId: typeof frame.rpcId === 'string' ? frame.rpcId : '', payload: frame }
     }
@@ -1074,8 +1081,10 @@ export function apply(ctx, config = {}) {
         if (found?.rpcId) targetRpcId = found.rpcId
         value = { sessionId, approvalId, outcome: payload.outcome }
       } else if (kind === 'question') {
+        // 手机端从帧里拿到的 rpcId 就是待答的 server-request id：tracker 只是兜底
+        // （老进程里 tracker 可能因帧格式未解包而为空，但手机端带的 rpcId 依然有效）。
         const found = pendingTracker.findQuestion(sessionId, targetRpcId)
-        if (!found && pendingTracker.pending(sessionId).questions[0]) {
+        if (!found && targetRpcId === '' && pendingTracker.pending(sessionId).questions[0]) {
           targetRpcId = pendingTracker.pending(sessionId).questions[0].rpcId
         }
         value = { sessionId, answer: { answers: Array.isArray(payload.answers) ? payload.answers : [] } }

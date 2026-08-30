@@ -207,10 +207,44 @@ body {
   min-width: 0;
 }
 
-.mobile-header-actions .chat-quota-chip {
-  height: 24px;
-  padding: 0 8px;
+.mobile-header-actions .chat-quota-icon {
+  width: 26px;
+  height: 26px;
   flex: none;
+}
+
+/* Workspace quick search (top of the workspace list). */
+.mobile-wsSearch {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-bg-input);
+  color: var(--m-text);
+  font: inherit;
+  /* iOS zooms any field < 16px, which fights pinViewport. */
+  font-size: 16px;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.mobile-wsSearch:focus-visible {
+  border-color: var(--m-accent);
+  box-shadow: 0 0 0 2px var(--m-bg), 0 0 0 4px var(--m-accent);
+}
+
+.mobile-wsSearchEmpty {
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.mobile-wsSearchEmpty[hidden] {
+  display: none;
 }
 
 .mobile-theme-toggle {
@@ -1728,7 +1762,7 @@ body {
 .chat-send:focus-visible,
 .chat-msg-retry:focus-visible,
 .chat-chip:focus-visible,
-.chat-quota-chip:focus-visible,
+.chat-quota-icon:focus-visible,
 .chat-msg-toggle:focus-visible,
 .chat-load-older:focus-visible,
 .chat-disclosure-head:focus-visible,
@@ -1773,48 +1807,61 @@ body {
   padding: 6px 12px 0;
 }
 
-.chat-quota-chip {
+/* Icon-only provider buttons: DeepSeek whale / Grok mark (same marks as the
+   PC chips). Values live on the quota sheet; the header stays slim. */
+.chat-quota-icon {
   appearance: none;
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: 1px solid var(--m-border);
-  border-radius: 999px;
+  border-radius: 50%;
   background: var(--m-bg-raised);
   color: var(--m-text-secondary);
-  font-size: 11px;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
   cursor: pointer;
+  flex: none;
 }
 
-.chat-quota-chip:active {
+.chat-quota-icon:active {
   border-color: var(--m-accent);
   background: var(--m-accent-soft);
 }
 
-.chat-quota-label {
-  color: var(--m-text-tertiary);
+.chat-quota-icon svg {
+  display: block;
 }
 
-.chat-quota-value {
-  color: var(--m-text);
-  font-weight: 500;
+/* 通用 .mobile-header-icon svg 会把尺寸压成 18×18；额度 logo 用标签上的
+   宽高（鲸鱼 19×14、Grok 14×13.6），保持和 PC 一样的比例。 */
+.chat-quota-icon .mobile-header-icon,
+.chat-quota-icon .mobile-header-icon svg {
+  width: auto;
+  height: auto;
 }
 
-.chat-quota-chip.is-warn .chat-quota-value {
-  color: var(--m-warning);
+.chat-quota-icon.is-loading {
+  opacity: 0.6;
 }
 
-.chat-quota-chip.is-alert .chat-quota-value,
-.chat-quota-chip.is-error .chat-quota-value {
-  color: var(--m-danger);
+.chat-quota-icon.is-warn::after,
+.chat-quota-icon.is-alert::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 2px solid var(--m-bg-raised);
+  background: var(--m-warning);
 }
 
-.chat-quota-chip.is-loading {
-  opacity: 0.7;
+.chat-quota-icon.is-alert::after {
+  background: var(--m-danger);
 }
 
 .quota-section {
@@ -2041,7 +2088,7 @@ body {
   .mobile-new,
   .chat-send,
   .chat-chip,
-  .chat-quota-chip,
+  .chat-quota-icon,
   .chat-msg-toggle,
   .chat-load-older,
   .chat-disclosure-head,
@@ -2457,6 +2504,6 @@ html[data-keyboard='1'] .mobile-pair .pair-logo {
 </head>
 <body>
   <div id="root"></div>
-  <script src="/mp/app.js?v=0.3.1"></script>
+  <script src="/mp/app.js?v=0.4.0"></script>
 </body>
 </html>
