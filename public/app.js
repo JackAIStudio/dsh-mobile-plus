@@ -3505,18 +3505,12 @@
   }
 
   function makeAttachButton() {
-    const open = state.sheet === 'attach'
     return el('button', {
       type: 'button',
       class: 'attach-btn',
       'aria-label': '添加附件',
-      'aria-haspopup': 'dialog',
-      'aria-expanded': open ? 'true' : 'false',
       disabled: state.sending,
-      onclick: () => {
-        state.sheet = state.sheet === 'attach' ? null : 'attach'
-        render()
-      },
+      onclick: () => { pickFromFiles() },
     }, [
       el('span', {
         class: 'attach-btn-icon',
@@ -3810,7 +3804,6 @@
   const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
   const previewByPath = new Map()
   const uploadWaiters = new Map()
-  let albumInput = null
   let fileInput = null
   let attachProgressTimer = 0
 
@@ -3833,7 +3826,7 @@
 
   function parseInboxDelivery(text) {
     const raw = String(text || '')
-    const markers = ['【手机发来的文件】', '【手机发来的图片】']
+    const markers = ['【相关的文件目录】', '【参考文件】', '【手机发来的文件】', '【手机发来的图片】']
     let idx = -1
     for (const marker of markers) {
       const at = raw.indexOf(marker)
@@ -3864,19 +3857,6 @@
       attachProgressTimer = 0
       if (state.view === 'chat') render()
     }, 200)
-  }
-
-  function ensureAlbumInput() {
-    if (albumInput) return albumInput
-    albumInput = el('input', {
-      type: 'file',
-      accept: 'image/*',
-      multiple: true,
-      class: 'attach-input',
-      onchange: onPickFiles,
-    })
-    document.body.append(albumInput)
-    return albumInput
   }
 
   function ensureFileInput() {
@@ -4038,30 +4018,8 @@
     render()
   }
 
-  function pickFromAlbum() {
-    ensureAlbumInput().click()
-  }
-
   function pickFromFiles() {
     ensureFileInput().click()
-  }
-
-  function attachSheet() {
-    const close = () => { state.sheet = null; render() }
-    return el('div', { class: 'sheet-backdrop', onclick: close }, [
-      el('div', {
-        class: 'sheet attach-sheet',
-        role: 'dialog',
-        'aria-modal': 'true',
-        'aria-label': '添加附件',
-        onclick: (ev) => { ev.stopPropagation() },
-      }, [
-        el('div', { class: 'sheet-handle' }),
-        el('button', { type: 'button', class: 'attach-sheet-item', onclick: pickFromAlbum }, ['相册']),
-        el('button', { type: 'button', class: 'attach-sheet-item', onclick: pickFromFiles }, ['文件']),
-        el('button', { type: 'button', class: 'attach-sheet-cancel', onclick: close }, ['取消']),
-      ]),
-    ])
   }
 
   /* ── image lightbox (pending composer + sent chat thumbs) ─────────────
@@ -4434,7 +4392,7 @@
     const rawEcho = String(message.text || '')
     const echo = parseInboxDelivery(rawEcho).text.trim()
     const local = String(item.text || '').trim()
-    const delivered = rawEcho.includes('【手机发来的文件】') || rawEcho.includes('【手机发来的图片】')
+    const delivered = rawEcho.includes('【相关的文件目录】') || rawEcho.includes('【参考文件】') || rawEcho.includes('【手机发来的文件】') || rawEcho.includes('【手机发来的图片】')
     if (local && echo === local) return true
     if (local && rawEcho.includes(local) && ((item.images && item.images.length > 0) || (item.fileCards && item.fileCards.length > 0) || delivered)) return true
     if (!local && ((item.images && item.images.length > 0) || (item.fileCards && item.fileCards.length > 0) || (item.paths && item.paths.length > 0)) && ((message.images && message.images.length > 0) || delivered)) return true
@@ -4565,7 +4523,7 @@
       return
     }
 
-    const note = ok.length ? `【手机发来的文件】\n${ok.map((att) => att.path).join('\n')}` : ''
+    const note = ok.length ? `【相关的文件目录】\n${ok.map((att) => att.path).join('\n')}` : ''
     const promptText = [text, note].filter(Boolean).join('\n\n')
     const last = chat.messages[chat.messages.length - 1]
     const item = {
@@ -5064,7 +5022,7 @@
       todos: renderTodoDock(standingTodos()),
       pics,
       slash: renderSlashMenu(),
-      sheet: state.sheet === 'attach' ? attachSheet() : state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
+      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
     }
   }
 

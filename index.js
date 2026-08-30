@@ -713,10 +713,10 @@ export function apply(ctx, config = {}) {
         writeFileSync(join(dir, `latest.${ext}`), Buffer.from(raw, 'base64'))
       }
     })
-    const note = ['【手机发来的文件】', ...paths].join('\n')
+    const note = ['【相关的文件目录】', ...paths].join('\n')
     // 传给模型的内容只保留缩略图：剔除 fullData（完整 base64 不再进会话日志）。
     const rest = payload.content
-      .filter((part) => !(part && part.type === 'text' && String(part.text || '').includes('【手机发来的')))
+      .filter((part) => !(part && part.type === 'text' && String(part.text || '').match(/【(?:手机发来的文件|手机发来的图片|参考文件|相关的文件目录)】/)))
       .map((part) => {
         if (!part || part.type !== 'image' || typeof part.fullData !== 'string') return part
         const { fullData, ...slim } = part
