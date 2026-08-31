@@ -1013,15 +1013,38 @@
     try { return localStorage.getItem(THEME_KEY) } catch { return null }
   }
 
+  function isDarkTheme() {
+    const saved = storedTheme()
+    if (saved === 'dark') return true
+    if (saved === 'light') return false
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+
   function applyTheme() {
-    document.documentElement.dataset.theme = storedTheme() === 'dark' ? 'dark' : ''
+    const dark = isDarkTheme()
+    document.documentElement.dataset.theme = dark ? 'dark' : ''
+    
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.remove())
+    let meta = document.createElement('meta')
+    meta.name = 'theme-color'
+    meta.content = dark ? '#111418' : '#f3f5f9'
+    document.head.appendChild(meta)
   }
 
   function toggleTheme() {
-    const next = storedTheme() === 'dark' ? 'light' : 'dark'
+    const next = isDarkTheme() ? 'light' : 'dark'
     try { localStorage.setItem(THEME_KEY, next) } catch { /* ignore */ }
     applyTheme()
     render()
+  }
+
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (!storedTheme()) {
+        applyTheme()
+        render()
+      }
+    })
   }
 
   function headerIcon(markup) {
@@ -1031,7 +1054,7 @@
   }
 
   function themeToggle() {
-    const dark = storedTheme() === 'dark'
+    const dark = isDarkTheme()
     return el('button', {
       type: 'button', class: 'mobile-theme-toggle',
       'aria-label': dark ? '切换到浅色' : '切换到深色',
@@ -1055,9 +1078,12 @@
     return el('button', {
       type: 'button',
       class: 'mobile-theme-toggle mobile-reload-btn',
-      'aria-label': '刷新页面',
-      title: '刷新页面',
-      onclick: () => reloadApp(),
+      'aria-label': '系统操作',
+      title: '系统操作',
+      onclick: () => {
+        state.sheet = 'power'
+        render()
+      },
     }, [
       headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>'),
     ])
@@ -1161,6 +1187,29 @@
     }
     state.sheet = null
     render()
+  }
+
+  function powerSheet() {
+    const close = () => { state.sheet = null; render() }
+    return el('div', { class: 'sheet-backdrop', onclick: close }, [
+      el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '系统操作', onclick: (ev) => { ev.stopPropagation() } }, [
+        el('div', { class: 'sheet-handle' }),
+        el('div', { class: 'sheet-title' }, ['系统操作']),
+        el('div', { class: 'sheet-body' }, [
+          el('div', { class: 'pwa-actions', style: 'display: flex; flex-direction: column; gap: 12px;' }, [
+            el('button', { type: 'button', class: 'mobile-button', onclick: () => { close(); reloadApp() } }, ['刷新前端页面']),
+            el('button', { type: 'button', class: 'mobile-new', style: 'background: var(--dsw-alias-state-error-primary); border-color: transparent;', onclick: () => {
+              if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务，如果你的宿主不是通过 pm2 等工具常驻运行的，可能需要手动去终端重新启动。')) return
+              close()
+              void rpc('host.restart', {}).then((res) => {
+                if (!res.ok) alert('重启请求失败: ' + (res.error?.message || '未知错误'))
+                else setTimeout(() => reloadApp(), 1500)
+              }).catch((err) => alert('发送重启指令失败: ' + err.message))
+            } }, ['重启核心服务']),
+          ]),
+        ]),
+      ]),
+    ])
   }
 
   /** Chat-only header control: model / display / context live in one sheet. */
@@ -2184,12 +2233,48 @@
         }
       }
     }
+    // 失败且没有任何 assistant 消息（首条回复前就报错，如鉴权/配额失败）时，
+    // 桌面端会渲染一条错误回复，手机端此前什么都不显示 —— 用户只看到自己
+    // 的消息，以为"回复丢了"。这里补建一条 assistant 错误气泡，让失败原因可见。
+    if (failed && targets.length === 0) {
+      const err = isRecord(reason.error) ? reason.error : {}
+      const code = pickString(err.code) || 'error'
+      const detail = pickString(err.message)
+      const text = detail
+        ? `⚠️ 本轮回复失败（${code}）\n\n${detail}`
+        : `⚠️ 本轮回复失败（${code}），未收到模型回复。`
+      const id = syntheticId('assistant', event.seq)
+      const message = {
+        id,
+        kind: 'assistant',
+        text,
+        failed: true,
+        seq: event.seq,
+        time: event.time,
+      }
+      state.messages.push(message)
+      state.byId.set(id, message)
+      if (turn !== undefined) state.messageTurn.set(id, turn)
+      return
+    }
     for (const message of targets) {
       const wasPending = message.pending === true
+      // 失败且有 assistant 消息但文本为空（流式占位、未发出任何内容就报错）
+      // 时，把失败原因补进去，避免渲染出一条空气泡。
+      let errorText
+      if (failed && (message.text === '' || message.text === undefined)) {
+        const err = isRecord(reason.error) ? reason.error : {}
+        const code = pickString(err.code) || 'error'
+        const detail = pickString(err.message)
+        errorText = detail
+          ? `⚠️ 本轮回复失败（${code}）\n\n${detail}`
+          : `⚠️ 本轮回复失败（${code}），未收到模型回复。`
+      }
       replaceMessage(state, message, {
         ...message,
         ...(wasPending ? { pending: false } : {}),
         ...(failed ? { failed: true } : {}),
+        ...(errorText !== undefined ? { text: errorText } : {}),
         // Preserve each step's own final-event seq; same-turn ordering
         // must not depend on arbitrary ids.
         time: event.time,
@@ -4295,7 +4380,7 @@
         call('skill.list', { sessionId: sid }).catch(() => ({ skills: [] })),
       ])
       chat.slashCommands = Array.isArray(cmds.items) ? cmds.items : []
-      chat.slashSkills = Array.isArray(skills.skills) ? skills.skills : []
+      console.log("SKILLS RESP:", skills); chat.slashSkills = Array.isArray(skills.skills) ? skills.skills : (Array.isArray(skills.items) ? skills.items : [])
       if (state.view === 'chat' && state.draft.startsWith('/')) render()
     } catch {
       chat.slashCommands = []
@@ -4758,7 +4843,7 @@
           ]),
           el('div', { class: 'sheet-section' }, [
             el('div', { class: 'sheet-section-title' }, ['外观']),
-            settingsToggleRow('深色模式', '只作用于这台手机上的远程页', storedTheme() === 'dark', () => toggleTheme()),
+            settingsToggleRow('深色模式', '跟随系统或手动切换', isDarkTheme(), () => toggleTheme()),
           ]),
           el('div', { class: 'sheet-section' }, [
             el('div', { class: 'sheet-section-title' }, ['页面']),
@@ -5022,7 +5107,7 @@
       todos: renderTodoDock(standingTodos()),
       pics,
       slash: renderSlashMenu(),
-      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : null,
+      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : state.sheet === 'power' ? powerSheet() : null,
     }
   }
 
@@ -5070,6 +5155,7 @@
       ]),
     ])
     if (state.sheet === 'quota') page.append(quotaSheet())
+    if (state.sheet === 'power') page.append(powerSheet())
 
     if (state.loading && state.sessions.length === 0 && !state.error) {
       page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['加载中…'])]))
@@ -5137,6 +5223,7 @@
     ])
     if (state.sheet === 'quota') page.append(quotaSheet())
     if (state.sheet === 'pwa') page.append(pwaSheet())
+    if (state.sheet === 'power') page.append(powerSheet())
     if (state.createError) {
       page.append(el('p', { class: 'mobile-error' }, [state.createError]))
     }
@@ -5351,9 +5438,21 @@
     return el('main', { class: 'mobile mobile-pair' }, [form])
   }
 
+  /** fetch with a hard timeout. A stalled tunnel / sleeping host must never
+   *  leave the「创建中…」button stuck forever (same discipline as call()). */
+  async function timedFetch(url, options = {}, timeoutMs = 15 * 1000) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      return await fetch(url, { ...options, signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   async function probeToday() {
     try {
-      const res = await fetch('/dsh-today/info', { credentials: 'same-origin' })
+      const res = await timedFetch('/dsh-today/info', { credentials: 'same-origin' })
       state.todayAvailable = res.ok
     } catch {
       state.todayAvailable = false
@@ -5366,7 +5465,7 @@
     state.createError = ''
     render()
     try {
-      const res = await fetch('/dsh-today/open', { method: 'POST', credentials: 'same-origin' })
+      const res = await timedFetch('/dsh-today/open', { method: 'POST', credentials: 'same-origin' }, 20 * 1000)
       const data = await res.json()
       if (!res.ok || !data || typeof data.path !== 'string') {
         throw new Error((data && data.error) || '无法创建今天的工作区')
