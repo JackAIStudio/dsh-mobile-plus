@@ -18,8 +18,12 @@
 
   /* ── state ─────────────────────────────────────────────────────────── */
 
+  let audioUnlocked = false
+  let notificationsEnabled = (() => { try { return localStorage.getItem('dsh-mp-notify') === 'true' } catch { return false } })()
+
   const state = {
     view: 'boot', // boot | pair | error | workspaces | sessions | chat | dir
+    listMode: (() => { try { return localStorage.getItem('dsh-mp-list-mode') || 'flat' } catch { return 'flat' } })(), // 'flat' | 'workspace'
     error: '',
     workspaces: [],
     wsQuery: '', // workspaces quick-search filter
@@ -157,13 +161,40 @@
   }
 
   function persistRoute(route) {
-    let saved = { view: 'workspaces' }
+    let saved = { view: state.listMode === 'flat' ? 'sessions' : 'workspaces', workspaceId: '' }
     if (route && route.view === 'chat' && route.workspaceId && route.sessionId) {
       saved = { view: 'chat', workspaceId: route.workspaceId, sessionId: route.sessionId }
     } else if (route && (route.view === 'sessions' || route.view === 'chat') && route.workspaceId) {
       saved = { view: 'sessions', workspaceId: route.workspaceId }
     }
     try { localStorage.setItem(LOCATION_KEY, JSON.stringify(saved)) } catch { /* privacy mode */ }
+  }
+
+  
+  function triggerTaskDoneNotification(title) {
+    if (!notificationsEnabled) return;
+    try {
+      const audio = document.getElementById('peon-audio');
+      if (audio && audioUnlocked) {
+        audio.currentTime = 0;
+        audio.play().catch(console.error);
+      }
+    } catch (e) { console.error('Audio play error', e); }
+    
+    if (notificationsEnabled && Notification.permission === 'granted') {
+      try {
+        navigator.serviceWorker.ready.then(registration => {
+          registration.showNotification('任务完成', {
+            body: title || '一个对话任务已完成',
+            icon: '/mp/icon.png',
+            tag: 'task-done',
+            renotify: true
+          });
+        });
+      } catch (e) {
+        console.error('Push error', e);
+      }
+    }
   }
 
   function readPersistedRoute() {
@@ -174,7 +205,7 @@
       if (!parsed || typeof parsed !== 'object') return null
       const workspaceId = typeof parsed.workspaceId === 'string' ? parsed.workspaceId : ''
       const sessionId = typeof parsed.sessionId === 'string' ? parsed.sessionId : ''
-      if (!workspaceId) return { view: 'workspaces' }
+      if (!workspaceId) return { view: state.listMode === 'flat' ? 'sessions' : 'workspaces', workspaceId: '' }
       if (parsed.view === 'sessions') return { view: 'sessions', workspaceId }
       if (sessionId && parsed.view !== 'workspaces') return { view: 'chat', workspaceId, sessionId }
       return { view: 'sessions', workspaceId }
@@ -2905,8 +2936,8 @@
     return new Set((workspace && workspace.sessionIds) || [])
   }
 
-  function applySessionPage(items, owned, listedAt = 0) {
-    const rows = (items || []).filter((s) => owned.has(s.sessionId))
+  function applySessionPage(items, owned, listedAt = 0, noFilter = false) {
+    const rows = noFilter ? (items || []) : (items || []).filter((s) => owned.has(s.sessionId))
     for (const s of rows) hydrateSessionLive(s, listedAt)
     return rows
   }
@@ -2917,7 +2948,8 @@
    * global 20-at-a-time list (keep walking past empty owned pages).
    */
   async function collectOwnedPages(workspaceId, owned, startCursor, already, listedAt = Date.now()) {
-    if (owned.size === 0) return { items: already.slice(), nextCursor: undefined, hasMore: false }
+    const noFilter = !workspaceId
+    if (!noFilter && owned.size === 0) return { items: already.slice(), nextCursor: undefined, hasMore: false }
     const items = already.slice()
     const seen = new Set(items.map((s) => s.sessionId))
     let cursor = startCursor
@@ -2929,7 +2961,7 @@
         ...(cursor ? { cursor } : {}),
         ...(workspaceId ? { workspaceId } : {}),
       })
-      const extra = applySessionPage(page.items, owned, listedAt)
+      const extra = applySessionPage(page.items, owned, listedAt, noFilter)
       for (const row of extra) {
         if (seen.has(row.sessionId)) continue
         seen.add(row.sessionId)
@@ -3064,7 +3096,9 @@
         const row = sessionLive.get(state.session.sessionId)
         const next = row ? row.running === true : false
         if (state.running !== next) {
+          const wasRunning = state.running
           state.running = next
+          if (wasRunning && !next) triggerTaskDoneNotification(state.session?.title || '会话')
           changed = true
         }
       }
@@ -3804,8 +3838,12 @@
       if (frame.sessionId === state.session?.sessionId) {
         const next = frame.running === true
         if (state.running !== next) {
+          const wasRunning = state.running
           state.running = next
-          if (next === false) void loadQuota(true)
+          if (wasRunning && !next) {
+            void loadQuota(true)
+            triggerTaskDoneNotification(state.session?.title || '会话')
+          }
           if (state.view === 'chat') render()
         }
       }
@@ -5147,9 +5185,45 @@
     const page = el('div', { class: 'mobile' }, [
       el('header', { class: 'mobile-header' }, [
         el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack({ view: 'workspaces' }) }, ['‹']),
-        el('h1', { class: 'mobile-title mobile-titleInline' }, [old ? workspaceTitle(old) : '会话']),
+        !old ? el('div', { class: 'mobile-title mobile-titleInline mobile-tabs' }, [
+          el('button', { class: state.listMode === 'workspace' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('workspace') }, ['工作区']),
+          el('button', { class: state.listMode === 'flat' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('flat') }, ['最近会话']),
+        ]) : el('h1', { class: 'mobile-title mobile-titleInline' }, [workspaceTitle(old)]),
         headerActions([
           renderQuotaBar(),
+
+          el('button', {
+            type: 'button',
+            class: 'mobile-header-icon',
+            'aria-label': '通知',
+            onclick: async () => {
+              try {
+                // unlock audio on first interaction
+                if (!audioUnlocked) {
+                  const audio = document.getElementById('peon-audio');
+                  if (audio) { audio.volume = 0.01; audio.play().then(() => { audio.pause(); audio.volume = 1; audioUnlocked = true; }).catch(console.error); }
+                }
+                
+                if (!notificationsEnabled) {
+                  const p = await Notification.requestPermission();
+                  if (p === 'granted') {
+                    notificationsEnabled = true;
+                    try { localStorage.setItem('dsh-mp-notify', 'true'); } catch {}
+                    alert('通知和提示音已开启！\n当离开应用时如果有任务完成，会收到推送。');
+                  } else {
+                    alert('请在浏览器设置中允许发送通知。');
+                  }
+                } else {
+                  notificationsEnabled = false;
+                  try { localStorage.setItem('dsh-mp-notify', 'false'); } catch {}
+                  alert('通知和提示音已关闭。');
+                }
+                render();
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          }, [notificationsEnabled ? '🔔' : '🔕']),
           reloadButton(),
         ]),
       ]),
@@ -5211,11 +5285,47 @@
   function renderWorkspaces() {
     const page = el('div', { class: 'mobile' }, [
       el('header', { class: 'mobile-header' }, [
-        el('h1', { class: 'mobile-title mobile-titleInline' }, ['工作区']),
+        el('div', { class: 'mobile-title mobile-titleInline mobile-tabs' }, [
+          el('button', { class: state.listMode === 'workspace' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('workspace') }, ['工作区']),
+          el('button', { class: state.listMode === 'flat' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('flat') }, ['最近会话']),
+        ]),
         headerActions([
           renderQuotaBar(),
           state.todayAvailable ? todayButton() : null,
           isStandalone() ? null : pwaButton(),
+          
+          el('button', {
+            type: 'button',
+            class: 'mobile-header-icon',
+            'aria-label': '通知',
+            onclick: async () => {
+              try {
+                // unlock audio on first interaction
+                if (!audioUnlocked) {
+                  const audio = document.getElementById('peon-audio');
+                  if (audio) { audio.volume = 0.01; audio.play().then(() => { audio.pause(); audio.volume = 1; audioUnlocked = true; }).catch(console.error); }
+                }
+                
+                if (!notificationsEnabled) {
+                  const p = await Notification.requestPermission();
+                  if (p === 'granted') {
+                    notificationsEnabled = true;
+                    try { localStorage.setItem('dsh-mp-notify', 'true'); } catch {}
+                    alert('通知和提示音已开启！\n当离开应用时如果有任务完成，会收到推送。');
+                  } else {
+                    alert('请在浏览器设置中允许发送通知。');
+                  }
+                } else {
+                  notificationsEnabled = false;
+                  try { localStorage.setItem('dsh-mp-notify', 'false'); } catch {}
+                  alert('通知和提示音已关闭。');
+                }
+                render();
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          }, [notificationsEnabled ? '🔔' : '🔕']),
           reloadButton(),
           themeToggle(),
         ]),
