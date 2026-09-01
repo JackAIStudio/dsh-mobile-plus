@@ -1,0 +1,387 @@
+/* ── lists ───────────────────────────────────────────────────────────── */
+
+.mobile-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  list-style: none;
+  margin: 0;
+  padding: 8px 0 calc(var(--m-kb-bottom) + 16px);
+}
+
+.mobile-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  padding: 13px 14px;
+  border: 1px solid var(--m-border);
+  border-radius: 14px;
+  background: var(--m-bg-raised);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-row:active {
+  background: color-mix(in srgb, var(--m-text) 5%, var(--m-bg-raised));
+}
+
+.mobile-rowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* Workspace rows: name on its own line (Web/PC), path as a truncated subtitle.
+   Horizontal title+path siblings let a flex:none path steal the name. */
+.mobile-rowStack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.mobile-rowTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.mobile-rowStack .mobile-rowTitle {
+  flex: none;
+  width: 100%;
+  font-weight: 600;
+}
+
+.mobile-rowMeta {
+  flex: none;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+}
+
+.mobile-rowStack .mobile-rowMeta {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-chevron {
+  flex: none;
+  color: var(--m-text-tertiary);
+  font-size: 18px;
+}
+
+/* Web StateDot: ongoing is the 8-cell chase matrix; warning/done stay as dots. */
+.mobile-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+  flex: none;
+}
+.mobile-status-dot-warning {
+  background: var(--m-warning);
+}
+.mobile-status-dot-done {
+  background: var(--m-success);
+}
+.mobile-status-ongoing {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  color: var(--m-ongoing);
+}
+.mobile-status-matrix {
+  display: block;
+}
+.mobile-status-cell {
+  fill: currentColor;
+  opacity: 0.15;
+  animation: mobile-status-chase 1s ease infinite;
+}
+@keyframes mobile-status-chase {
+  0%, 12.4% { opacity: 1; }
+  12.5%, 24.9% { opacity: 0.6; }
+  25%, 37.4% { opacity: 0.35; }
+  37.5%, 100% { opacity: 0.15; }
+}
+
+.pwa-secure {
+  margin: 0 4px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pwa-secure.is-ok {
+  background: color-mix(in srgb, var(--m-success) 12%, transparent);
+}
+
+.pwa-secure.is-warn {
+  background: color-mix(in srgb, var(--m-warning) 14%, transparent);
+}
+
+.pwa-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pwa-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--m-bg);
+}
+
+.pwa-step-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pwa-step-text {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.45;
+  padding-top: 1px;
+}
+
+.pwa-actions {
+  display: grid;
+  gap: 8px;
+  padding: 4px 4px 8px;
+}
+
+.pwa-actions .mobile-new,
+.pwa-actions .mobile-button {
+  width: 100%;
+}
+
+/* ── empty / error states ────────────────────────────────────────────── */
+
+.mobile-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+}
+
+.mobile-muted {
+  margin: 0;
+  color: var(--m-text-tertiary);
+}
+
+.mobile-error {
+  margin: 0;
+  color: var(--m-danger);
+}
+
+.mobile-pad {
+  padding: 8px 16px;
+}
+
+.mobile-create {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-preset {
+  display: grid;
+  gap: 4px;
+}
+
+.mobile-presetLabel {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mobile-presetSelect {
+  width: 100%;
+  height: 40px;
+  padding: 0 36px 0 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-bg-input);
+  color: var(--m-text);
+  font: inherit;
+}
+
+.mobile-presetSelect:disabled {
+  opacity: 0.6;
+}
+
+.mobile-presetDescription {
+  margin: 0;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+}
+
+/* ── buttons ─────────────────────────────────────────────────────────── */
+
+.mobile-button {
+  height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mobile-button:disabled {
+  opacity: 0.5;
+}
+
+.mobile-block {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 4px 16px;
+}
+
+/* Primary action (create session): accent fill, readable on both themes. */
+.mobile-new {
+  display: block;
+  width: 100%;
+  height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--m-accent) 0%, #4c8dff 100%);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(47, 111, 237, 0.3);
+}
+
+.mobile-new:active {
+  opacity: 0.88;
+}
+
+.mobile-new:disabled {
+  opacity: 0.6;
+}
+
+.mobile-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+}
+
+/* ── Quick Action Cards (Today & New Workspace) ────────────────────── */
+.mobile-quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+.mobile-quick-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--m-shadow);
+  transition: transform 0.1s ease, border-color 0.12s ease;
+}
+.mobile-quick-card:active {
+  transform: scale(0.98);
+  background: var(--m-bg-input);
+}
+.mobile-quick-card.is-today {
+  background: var(--m-accent-soft);
+  border-color: color-mix(in srgb, var(--m-accent) 35%, transparent);
+}
+.mobile-quick-card.is-today .mobile-quick-icon {
+  color: var(--m-accent);
+}
+.mobile-quick-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--m-text-secondary);
+  flex: none;
+}
+.mobile-quick-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.mobile-quick-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mobile-quick-desc {
+  font-size: 11px;
+  color: var(--m-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Session Row Workspace Badge ───────────────────────────────────── */
+.mobile-rowHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.mobile-rowWsBadge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  max-width: 110px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

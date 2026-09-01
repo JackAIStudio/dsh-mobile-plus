@@ -1,0 +1,155 @@
+/* ── installed-app pairing ───────────────────────────────────────────── */
+
+.mobile-pair {
+  /* Fill the already-pinned visual viewport. 100dvh is the layout viewport
+     (keyboard still counted), which centers the field behind the keys. */
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 24px;
+}
+
+html[data-keyboard='1'] .mobile-pair {
+  place-items: start center;
+  align-content: start;
+  padding: 8px 16px 12px;
+}
+
+.mobile-pairCard {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-bg-raised);
+  box-shadow: var(--m-shadow-raise);
+}
+
+html[data-keyboard='1'] .mobile-pairCard {
+  gap: 8px;
+  padding: 16px;
+}
+
+html[data-keyboard='1'] .mobile-pair .pair-logo {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 0;
+}
+
+.mobile-pairToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mobile-pairLabel {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mobile-pairPaste {
+  flex: none;
+  margin: 0;
+  padding: 4px 0 4px 8px;
+  border: none;
+  background: none;
+  color: var(--m-accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.mobile-pairInput {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-bg-input);
+  color: var(--m-text);
+  font: inherit;
+  /* iOS zooms any field < 16px, which fights pinViewport and hides paste. */
+  font-size: 16px;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.mobile-pairInput:focus-visible {
+  border-color: var(--m-accent);
+  box-shadow: 0 0 0 2px var(--m-bg), 0 0 0 4px var(--m-accent);
+}
+
+.mobile-pairSubmit {
+  width: 100%;
+}
+
+/* ── directory browser ─────────────────────────────────────────────── */
+
+.dir-browser {
+  display: flex;
+  flex-direction: column;
+}
+
+.dir-crumbs {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  padding: 12px 16px;
+  background: var(--m-bg-raised);
+  border-bottom: 1px solid var(--m-border);
+  white-space: nowrap;
+}
+
+.dir-crumbs::-webkit-scrollbar {
+  display: none;
+}
+
+.dir-crumb {
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+  color: var(--m-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.dir-crumb:active {
+  background: var(--m-bg-input);
+  border-radius: 4px;
+}
+
+.dir-crumb-separator {
+  color: var(--m-text-tertiary);
+  margin: 0 4px;
+  font-size: 14px;
+}
+
+.dir-entry {
+  padding-left: 16px;
+}
+
+.dir-entry-hidden {
+  opacity: 0.5;
+}
+
+.dir-select {
+  padding: 16px;
+  background: var(--m-bg);
+  border-top: 1px solid var(--m-border);
+}
+
+.dir-empty {
+  padding: 40px 0;
+}

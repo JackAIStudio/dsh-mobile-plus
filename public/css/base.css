@@ -1,0 +1,105 @@
+/* Mobile surface chrome: standalone stylesheet (no main-UI design tokens —
+   this page boots without the shell). Light-first palette; the dark palette
+   applies only when the header toggle sets [data-theme='dark']. */
+
+:root {
+  --m-bg: #f3f5f9;
+  --m-bg-raised: #ffffff;
+  --m-bg-input: #ffffff;
+  --m-border: #dfe4ec;
+  --m-text: #1c2333;
+  --m-text-secondary: #4d5768;
+  --m-text-tertiary: #8b95a7;
+  --m-accent: #2f6fed;
+  --m-accent-soft: rgba(47, 111, 237, 0.12);
+  --m-ongoing: #5686fe;
+  --m-danger: #d64545;
+  --m-success: #1e9e6a;
+  --m-warning: #d48b1a;
+  --m-radius: 12px;
+  --m-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --m-shadow-raise: 0 6px 20px rgba(16, 24, 40, 0.1);
+  --m-backdrop: rgba(15, 23, 42, 0.4);
+  --m-kb-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html[data-keyboard='1'] {
+  --m-kb-bottom: 0px;
+}
+
+:root[data-theme='dark'] {
+  --m-bg: #111418;
+  --m-bg-raised: #1a1f26;
+  --m-bg-input: #20262e;
+  --m-border: #2b333d;
+  --m-text: #e8eaed;
+  --m-text-secondary: #9aa3ad;
+  --m-text-tertiary: #6b747f;
+  --m-accent: #4f8cff;
+  --m-accent-soft: rgba(79, 140, 255, 0.14);
+  --m-ongoing: #5686fe;
+  --m-danger: #e5534b;
+  --m-success: #3fb68b;
+  --m-warning: #e2a336;
+  --m-radius: 12px;
+  --m-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --m-shadow-raise: 0 6px 20px rgba(0, 0, 0, 0.4);
+  --m-backdrop: rgba(0, 0, 0, 0.55);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--m-bg);
+  color: var(--m-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Pin the document so iOS/Android pull-to-refresh cannot grab the viewport.
+   Inner panes (.chat-scroll, .mobile-list, …) are the only scrollers.
+   Standalone (加到主屏幕) also has no Safari chrome refresh; the header
+   reload button is the stuck-app fallback. pinViewport() sets
+   height/width/top/left so this box tracks the visual viewport (keyboard
+   open → composer stays glued above the keys). Do not use transform: a
+   transformed ancestor hides the iOS caret and cancels pinyin composition.
+   Do not use inset:0 here: bottom:0 fights the JS height on iOS. */
+body {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+}
+
+/* The app fills exactly one viewport: the page itself never scrolls, each
+   view owns its scroll region (chat history, session lists) and the chat
+   composer stays pinned to the bottom of the screen. */
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.mobile {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

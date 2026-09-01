@@ -1,0 +1,197 @@
+/* ── todo / 任务规划 dock (Web TodoPanel) ────────────────────────────── */
+
+.todo-dock {
+  flex: none;
+  margin: 0 12px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-bg-raised);
+  overflow: hidden;
+}
+
+.todo-dock-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.todo-dock.is-collapsed .todo-dock-body {
+  gap: 0;
+}
+
+.todo-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.todo-dock .todo-dock-header {
+  min-height: 44px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.todo-dock .todo-dock-header:active {
+  opacity: 0.72;
+}
+
+.todo-dock-lead {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--m-text-tertiary);
+}
+
+.todo-dock .todo-dock-lead {
+  width: 22px;
+  height: 22px;
+  color: var(--m-text-secondary);
+}
+
+.todo-dock .todo-dock-lead svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.todo-dock-title {
+  flex: none;
+  color: var(--m-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.todo-dock .todo-dock-title {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.todo-dock-progress {
+  min-width: 0;
+  flex: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.todo-dock .todo-dock-progress {
+  color: var(--m-text-secondary);
+  font-size: 13px;
+}
+
+.todo-dock-chevron {
+  flex: none;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+}
+
+.todo-dock .todo-dock-chevron {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--m-bg);
+  color: var(--m-text-secondary);
+}
+
+.todo-dock .todo-dock-chevron svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  transition: transform 0.15s ease;
+}
+
+.todo-dock:not(.is-collapsed) .todo-dock-chevron svg {
+  transform: rotate(180deg);
+}
+
+.todo-dock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  list-style: none;
+}
+
+.todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.todo-item[data-status='completed'] .todo-content {
+  color: var(--m-text-tertiary);
+}
+
+.todo-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.todo-glyph svg {
+  display: block;
+}
+
+.todo-glyph-completed {
+  color: var(--m-success);
+}
+
+.todo-glyph-pending {
+  color: var(--m-text-tertiary);
+}
+
+.todo-glyph-progress {
+  color: var(--m-accent);
+}
+
+.todo-glyph-progress svg {
+  animation: todo-progress-spin 1s linear infinite;
+}
+
+@keyframes todo-progress-spin {
+  to { transform: rotate(360deg); }
+}
+
+.todo-content {
+  min-width: 0;
+  flex: auto;
+  overflow-wrap: break-word;
+}
+
+.chat-todo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  white-space: normal;
+}
