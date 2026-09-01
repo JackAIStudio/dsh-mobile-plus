@@ -21,37 +21,37 @@ export function contextUsage() {
   }
 
 export function autosizeInput(node) {
-    if (!node || imeComposing) return
+    if (!node || runtime.imeComposing) return
     node.style.height = 'auto'
     node.style.height = `${Math.min(node.scrollHeight, 120)}px`
   }
 
 export function imeLocked(ev) {
-    return imeComposing || Boolean(ev && (ev.isComposing || ev.keyCode === 229))
+    return runtime.imeComposing || Boolean(ev && (ev.isComposing || ev.keyCode === 229))
   }
 
 export function flushComposerRender() {
-    if (!composerRenderQueued) return
-    composerRenderQueued = false
+    if (!runtime.composerRenderQueued) return
+    runtime.composerRenderQueued = false
     if (state.view === 'chat') render()
   }
 
 export function syncComposerDraft(node, next, force) {
     if (!node) return
-    if (!force && imeComposing) return
+    if (!force && runtime.imeComposing) return
     if (node.value === next) return
     node.value = next
   }
 
 export function setDraft(next) {
     state.draft = next == null ? '' : String(next)
-    syncComposerDraft(composerNode, state.draft, true)
-    autosizeInput(composerNode)
+    syncComposerDraft(runtime.composerNode, state.draft, true)
+    autosizeInput(runtime.composerNode)
   }
 
 export function onComposerInput(ev) {
     const node = ev.target
-    if (ev.isComposing || ev.inputType === 'insertCompositionText') imeComposing = true
+    if (ev.isComposing || ev.inputType === 'insertCompositionText') runtime.imeComposing = true
     const prev = state.draft
     state.draft = node.value
     if (imeLocked(ev)) return
@@ -69,8 +69,8 @@ export function onComposerKeydown(ev) {
   }
 
 export function ensureComposer() {
-    if (composerNode) return composerNode
-    composerNode = el('textarea', {
+    if (runtime.composerNode) return runtime.composerNode
+    runtime.composerNode = el('textarea', {
       class: 'chat-input',
       placeholder: '输入消息，/ 调用命令或技能',
       enterkeyhint: composerReturnIsNewline() ? 'enter' : 'send',
@@ -78,8 +78,8 @@ export function ensureComposer() {
       oninput: onComposerInput,
       onkeydown: onComposerKeydown,
     })
-    composerNode.value = state.draft
-    return composerNode
+    runtime.composerNode.value = state.draft
+    return runtime.composerNode
   }
 
 export function makeSendButton() {
@@ -140,8 +140,8 @@ export function syncInputbar(bar) {
   }
 
 export function abandonComposerIme() {
-    imeComposing = false
-    composerRenderQueued = false
+    runtime.imeComposing = false
+    runtime.composerRenderQueued = false
   }
 
 export function composerReturnIsNewline() {

@@ -5,6 +5,7 @@ import { state, chat, runtime, LOCATION_KEY } from './state.js'
 import { openWorkspace, showWorkspaces } from '../ui/views/ws-view.js'
 import { openChat } from '../ui/views/chat-view.js'
 import { enterDir } from '../ui/views/dir-view.js'
+import { showSessionsFromChat, ownedSessionIds } from '../ui/views/session-view.js'
 import { render } from '../ui/views/render.js'
 
 export function decodeRouteSeg(part) {
@@ -76,14 +77,14 @@ export function commitLocation(route, mode) {
     const same = formatRoute(parseRoute(window.location.hash)) === hash
     const prevDepth = typeof history.state?.mpDepth === 'number' ? history.state.mpDepth : 0
     const rec = { mp: clean, mpDepth: (mode === 'push' && !same) ? prevDepth + 1 : prevDepth }
-    ignoringPop = true
+    runtime.ignoringPop = true
     try {
       if (mode === 'push' && !same) history.pushState(rec, '', url)
       else history.replaceState(rec, '', url)
     } catch {
       try { history.replaceState(rec, '', url) } catch { /* ignore */ }
     }
-    ignoringPop = false
+    runtime.ignoringPop = false
   }
 
 export function reloadPaired() {
@@ -107,9 +108,9 @@ export function navBack(parent) {
   }
 
 export async function applyRoute(route, opts = {}) {
-    const gen = ++routeGen
+    const gen = ++runtime.routeGen
     const locationMode = locationModeFor(opts)
-    const still = () => gen === routeGen
+    const still = () => gen === runtime.routeGen
 
     if (!route || route.view === 'workspaces' || (route.view !== 'dir' && route.view !== 'sessions' && route.view !== 'chat')) {
       showWorkspaces(locationMode)
@@ -171,8 +172,8 @@ export async function restoreRoute() {
     // Refresh replaces this history entry; parents on the stack may not be
     // ours. Zero depth so the in-app back button cannot history.back() off /mp/.
     if (history.state && history.state.mp) {
-      ignoringPop = true
+      runtime.ignoringPop = true
       try { history.replaceState({ ...history.state, mpDepth: 0 }, '', window.location.href) } catch { /* ignore */ }
-      ignoringPop = false
+      runtime.ignoringPop = false
     }
   }

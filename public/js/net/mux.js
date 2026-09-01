@@ -2,10 +2,14 @@
  * Live multiplexing and host event subscriptions.
  */
 import { state, chat, runtime } from '../state/state.js'
-import { foldEvents, applySessionTitle } from '../chat/fold.js'
-import { applyTodosLiveEvent, isStandingTodoEvent } from '../ui/todo.js'
+import { call } from './rpc.js'
+import { loadQuota } from './quota.js'
+import { stopPendingPoll } from './pending.js'
+import { foldEvents, applySessionTitle, isRecord, toWireEvent } from '../chat/fold.js'
+import { applyTodosLiveEvent, isStandingTodoEvent, applyTodosProjection } from '../ui/todo.js'
 import { applySessionLive, applyPendingFrame, ensureLive } from './pending.js'
-import { dropOutboxEcho } from '../chat/outbox.js'
+import { dropOutboxEcho, reconcileOutbox } from '../chat/outbox.js'
+import { refreshLiveSnapshot } from '../ui/views/session-view.js'
 import { render } from '../ui/views/render.js'
 import { triggerTaskDoneNotification } from '../utils/notify.js'
 
@@ -360,19 +364,19 @@ export class HostClient {
   }
 
 export async function ensureMux() {
-    if (mux !== null) return
-    mux = new MuxClient('/mp/api/events.mux', {
+    if (runtime.mux !== null) return
+    runtime.mux = new MuxClient('/mp/api/events.mux', {
       pollLatest: (sessionId) => call('session.history', { sessionId, maxMessages: 50 }),
     })
-    mux.onFrame(handleMuxFrame)
-    mux.start()
+    runtime.mux.onFrame(handleMuxFrame)
+    runtime.mux.start()
   }
 
 export async function ensureHost() {
-    if (host !== null) return
-    host = new HostClient('/mp/api/events.host')
-    host.onFrame(handleMuxFrame)
-    host.start()
+    if (runtime.host !== null) return
+    runtime.host = new HostClient('/mp/api/events.host')
+    runtime.host.onFrame(handleMuxFrame)
+    runtime.host.start()
   }
 
 export function handleMuxFrame(frame) {
@@ -463,11 +467,11 @@ export function handleMuxFrame(frame) {
 
 export function stopMuxObservation() {
     stopPendingPoll()
-    if (mux !== null) mux.observe(undefined)
+    if (runtime.mux !== null) runtime.mux.observe(undefined)
   }
 
 export function nudgeMux(sessionId) {
-    if (!mux || !sessionId) return
+    if (!runtime.mux || !sessionId) return
     const minSeq = chat.folder && typeof chat.folder.maxSeq === 'function' ? chat.folder.maxSeq() : undefined
-    mux.nudge(sessionId, minSeq)
+    runtime.mux.nudge(sessionId, minSeq)
   }

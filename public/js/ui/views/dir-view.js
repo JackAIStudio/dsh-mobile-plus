@@ -5,10 +5,11 @@ import { state, runtime } from '../../state/state.js'
 import { el, basename } from '../../utils/dom.js'
 import { call } from '../../net/rpc.js'
 import { parsePairInput, acceptPair } from '../../net/pair.js'
-import { commitLocation, navBack, reloadPaired } from '../../state/route.js'
-import { headerIcon, themeToggle, reloadButton, headerActions } from '../theme.js'
+import { commitLocation, navBack, reloadPaired, persistRoute } from '../../state/route.js'
+import { headerIcon, themeToggle, reloadButton, headerActions, globalSettingsButton } from '../theme.js'
+import { settingsSheet, pwaSheet, powerSheet } from '../sheets.js'
 import { render } from './render.js'
-import { loadWorkspaces } from './ws-view.js'
+import { loadWorkspaces, openWorkspace } from './ws-view.js'
 
 export function enterDir(locationMode = 'push') {
     state.dir = null

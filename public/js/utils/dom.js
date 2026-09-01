@@ -1,7 +1,7 @@
 /**
  * DOM manipulation and SVG icon helpers.
  */
-import { runtime } from '../state/state.js'
+import { state, runtime } from '../state/state.js'
 
 export const rootEl = typeof document !== 'undefined' ? document.getElementById('root') : null
 

@@ -4,7 +4,12 @@
 import { state, chat, runtime } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { writeStoredBoolean } from '../utils/storage.js'
+import { isRecord, toWireEvent, pickString, pickArgs } from '../chat/fold.js'
+import { onTodoScroll } from '../utils/scroll.js'
 import { render } from './views/render.js'
+
+/** Per-session seq watermark for todo projections (higher-seq-wins). */
+export const todoWatermark = new Map()
 
 export function todoStatusOf(value) {
     if (value === 'completed' || value === 'done' || value === 'complete') return 'completed'
@@ -40,7 +45,7 @@ export function completedGlyph() {
   }
 
 export function progressGlyph() {
-    const id = `todo-grad-${++svgUid}`
+    const id = `todo-grad-${++runtime.svgUid}`
     return el('span', {
       class: 'todo-glyph todo-glyph-progress',
       html: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><defs><linearGradient id="${id}" x1="2.5" y1="12" x2="10.5" y2="3.5" gradientUnits="userSpaceOnUse"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><circle cx="7" cy="7" r="6.4" stroke="url(#${id})" stroke-width="1.2"/></svg>`,
@@ -101,8 +106,8 @@ export function toggleTodoDock(ev) {
       ev.stopPropagation()
     }
     const now = Date.now()
-    if (now - todoToggleLock < 400) return
-    todoToggleLock = now
+    if (now - runtime.todoToggleLock < 400) return
+    runtime.todoToggleLock = now
     const next = chat.todoCollapsed !== true
     chat.todoCollapsed = next
     writeStoredBoolean('dsh.mobile.todoCollapsed', next)

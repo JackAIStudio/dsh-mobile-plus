@@ -1,11 +1,13 @@
 /**
  * GFM subset markdown parser and message markup generator.
  */
-import { chat } from '../state/state.js'
+import { chat, runtime } from '../state/state.js'
 import { openImageLightbox } from './lightbox.js'
 import { parseTodos, renderTodoCard, chevronIcon } from './todo.js'
 import { parseInboxDelivery } from '../chat/upload.js'
-import { el } from '../utils/dom.js'
+import { retryOutbox } from '../chat/outbox.js'
+import { el, basename } from '../utils/dom.js'
+import { formatTime } from '../utils/time.js'
 
 const HTML_ESCAPE_MAP = {
   '&': '&amp;',
@@ -266,13 +268,13 @@ export function messageHtml(m) {
       if (m.images?.length) thumbs.push(...m.images)
       if (!m.local) {
         for (const path of parsed.paths) {
-          const preview = previewByPath.get(path)
+          const preview = runtime.previewByPath.get(path)
           if (preview && !thumbs.includes(preview)) thumbs.push(preview)
         }
       }
       const fileCards = m.local
         ? (m.fileCards || [])
-        : parsed.paths.filter((path) => !previewByPath.has(path)).map((path) => ({ name: basename(path), path }))
+        : parsed.paths.filter((path) => !runtime.previewByPath.has(path)).map((path) => ({ name: basename(path), path }))
       return el('div', { class: cls.join(' ') }, [
         parsed.text ? el('div', { class: 'chat-msg-text' }, [parsed.text]) : null,
         thumbs.length ? el('div', { class: 'chat-msg-images' }, thumbs.map((src) => el('button', {

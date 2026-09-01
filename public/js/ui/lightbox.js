@@ -13,17 +13,17 @@ export function composerSrc(img) {
   }
 
 export function closeImageLightbox() {
-    if (lightboxCleanup) {
-      lightboxCleanup()
-      lightboxCleanup = null
+    if (runtime.lightboxCleanup) {
+      runtime.lightboxCleanup()
+      runtime.lightboxCleanup = null
     }
-    if (lightboxEsc) {
-      document.removeEventListener('keydown', lightboxEsc)
-      lightboxEsc = null
+    if (runtime.lightboxEsc) {
+      document.removeEventListener('keydown', runtime.lightboxEsc)
+      runtime.lightboxEsc = null
     }
-    if (lightboxNode) {
-      lightboxNode.remove()
-      lightboxNode = null
+    if (runtime.lightboxNode) {
+      runtime.lightboxNode.remove()
+      runtime.lightboxNode = null
     }
   }
 
@@ -54,9 +54,9 @@ export function openImageLightbox(src) {
     })
     node.addEventListener('touchmove', (ev) => { ev.preventDefault() }, { passive: false })
     attachLightboxZoom(stage, img)
-    lightboxEsc = (ev) => { if (ev.key === 'Escape') closeImageLightbox() }
-    document.addEventListener('keydown', lightboxEsc)
-    lightboxNode = node
+    runtime.lightboxEsc = (ev) => { if (ev.key === 'Escape') closeImageLightbox() }
+    document.addEventListener('keydown', runtime.lightboxEsc)
+    runtime.lightboxNode = node
     document.body.append(node)
   }
 
@@ -247,7 +247,7 @@ export function attachLightboxZoom(stage, img) {
     window.addEventListener('mouseup', onMouseUp)
     stage.addEventListener('wheel', onWheel, { passive: false })
 
-    lightboxCleanup = () => {
+    runtime.lightboxCleanup = () => {
       cancelCloseTimer()
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)

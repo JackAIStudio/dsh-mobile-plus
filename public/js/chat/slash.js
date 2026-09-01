@@ -4,7 +4,8 @@
 import { state, chat } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { call } from '../net/rpc.js'
-import { syncComposerDraft, focusComposer } from './composer.js'
+import { syncComposerDraft, focusComposer, setDraft } from './composer.js'
+import { send } from './outbox.js'
 import { render } from '../ui/views/render.js'
 
 export async function loadSlashCatalog(sessionId) {

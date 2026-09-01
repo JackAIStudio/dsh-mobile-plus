@@ -2,23 +2,27 @@
  * Chat conversation view, scroll restoration, and message history.
  */
 import { state, chat, runtime } from '../../state/state.js'
-import { el } from '../../utils/dom.js'
+import { el, rootEl } from '../../utils/dom.js'
+import { formatBytes } from '../../utils/time.js'
 import { call } from '../../net/rpc.js'
 import { commitLocation, navBack, persistRoute } from '../../state/route.js'
-import { EventFolder, foldEvents, toWireEvent, seedSessionTitleFromPage } from '../../chat/fold.js'
-import { seedTodosFromPage, renderTodoDock } from '../todo.js'
+import { EventFolder, foldEvents, toWireEvent, seedSessionTitleFromPage, sessionTitle } from '../../chat/fold.js'
+import { seedTodosFromPage, renderTodoDock, applyTodoEventsAfter, standingTodos, todoWatermark } from '../todo.js'
 import { messageHtml, isHiddenSystemMessage } from '../markdown.js'
 import { renderApprovalPanel, renderQuestionPanel } from '../../chat/approvals.js'
-import { removeComposerImage } from '../../chat/upload.js'
+import { removeComposerImage, clearAttachments, removeAttachment, isImageAttachment } from '../../chat/upload.js'
 import { renderSlashMenu, loadSlashCatalog } from '../../chat/slash.js'
-import { ensureComposer, buildInputbar, syncInputbar, syncComposerDraft } from '../../chat/composer.js'
+import { ensureComposer, buildInputbar, syncInputbar, syncComposerDraft, setDraft } from '../../chat/composer.js'
+import { reconcileOutbox, openOutbox } from '../../chat/outbox.js'
+import { ensureLive, startPendingPoll } from '../../net/pending.js'
+import { renderQuotaBar, quotaSheet } from '../../net/quota.js'
+import { settingsSheet, renderModelSheet, pwaSheet, powerSheet } from '../sheets.js'
+import { captureChatScroll, applyChatScroll, captureTodoScroll, applyTodoScroll, onChatScroll } from '../../utils/scroll.js'
 import { composerSrc, openImageLightbox } from '../lightbox.js'
 import { headerIcon, themeToggle, reloadButton, headerActions, pwaButton, globalSettingsButton } from '../theme.js'
-import { stopMuxObservation } from '../../net/mux.js'
+import { stopMuxObservation, ensureMux } from '../../net/mux.js'
 import { render } from './render.js'
 
-let lastMsgScrollKey = ''
-let prependAdjust = null
 
 export async function loadTail() {
     const sid = state.session && state.session.sessionId
@@ -89,35 +93,35 @@ export async function loadOlder() {
         beforeSeq: Math.max(1, oldest.seq - 1),
       })
       const existing = document.querySelector('.chat-scroll')
-      prependAdjust = existing
+      runtime.prependAdjust = existing
         ? { height: existing.scrollHeight, top: existing.scrollTop }
         : null
-      chatScroll.stick = false
+      runtime.chatScroll.stick = false
       const olderMsgs = foldEvents((page.events || []).map(toWireEvent))
       chat.folder.prepend(olderMsgs)
       chat.messages = chat.folder.snapshot()
       chat.hasOlder = Boolean(page.hasMore)
       render()
     } catch (err) {
-      prependAdjust = null
+      runtime.prependAdjust = null
       state.error = String(err.message || err)
       render()
     }
   }
 
 export async function openChat(session, opts = {}) {
-    const q = ++chatQuery
+    const q = ++runtime.chatQuery
     state.session = session
     state.view = 'chat'
     setDraft('')
     clearAttachments()
     state.sending = false
-    lastMsgScrollKey = null
-    chatScroll.stick = true
-    chatScroll.top = 0
-    chatScroll.restoring = false
-    todoScroll.top = 0
-    todoScroll.stick = true
+    runtime.lastMsgScrollKey = null
+    runtime.chatScroll.stick = true
+    runtime.chatScroll.top = 0
+    runtime.chatScroll.restoring = false
+    runtime.todoScroll.top = 0
+    runtime.todoScroll.stick = true
     todoWatermark.delete(session.sessionId)
     chat.todos = null
     chat.approvals = []
@@ -132,14 +136,14 @@ export async function openChat(session, opts = {}) {
       else persistRoute(loc)
     }
     render()
-    if (q !== chatQuery) return
+    if (q !== runtime.chatQuery) return
     await ensureMux()
-    if (q !== chatQuery) return
-    mux.observe(session.sessionId)
+    if (q !== runtime.chatQuery) return
+    runtime.mux.observe(session.sessionId)
     // Best-effort current model for the settings row (the sheet re-reads the
     // directory on every open) — old-plugin parity.
     void call('session.models', { sessionId: session.sessionId }).then((data) => {
-      if (q !== chatQuery) return
+      if (q !== runtime.chatQuery) return
       chat.currentModel = data.current
       if (state.view === 'chat') render()
     }).catch(() => { /* settings row falls back to a plain label */ })
@@ -157,8 +161,8 @@ export function renderChatParts() {
     const localPending = openOutbox()
     const last = localPending.length ? localPending[localPending.length - 1] : chat.messages[chat.messages.length - 1]
     const lastId = last === undefined ? undefined : last.id
-    if (lastMsgScrollKey === null) chatScroll.stick = true
-    if (lastId !== undefined) lastMsgScrollKey = lastId
+    if (runtime.lastMsgScrollKey === null) runtime.chatScroll.stick = true
+    if (lastId !== undefined) runtime.lastMsgScrollKey = lastId
 
     const scroller = el('div', { class: 'chat-scroll', onscroll: onChatScroll })
     if (chat.hasOlder) {

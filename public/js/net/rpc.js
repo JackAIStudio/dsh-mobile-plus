@@ -4,8 +4,19 @@
 import { runtime } from '../state/state.js'
 
 export function rpcId() {
-    return `${Date.now().toString(36)}-${++rpcN}`
+    return `${Date.now().toString(36)}-${++runtime.rpcN}`
   }
+
+/**
+ * Host RPC with a hard timeout. A hung host (busy, sleeping, flaky tunnel)
+ * must never leave a UI state stuck forever. session.create may legitimately
+ * take longer (host spawns the session and may reach out to the agent runtime).
+ */
+const RPC_TIMEOUT_MS = 30 * 1000
+const RPC_TIMEOUT_OVERRIDES = {
+  'session.create': 60 * 1000,
+  'quota.read': 20 * 1000,
+}
 
 export async function call(method, payload) {
     const id = rpcId()

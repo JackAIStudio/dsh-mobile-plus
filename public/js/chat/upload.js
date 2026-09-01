@@ -4,6 +4,8 @@
 import { state, runtime } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { formatBytes } from '../utils/time.js'
+import { rpcId } from '../net/rpc.js'
+import { closeImageLightbox } from '../ui/lightbox.js'
 import { syncComposerDraft } from './composer.js'
 import { render } from '../ui/views/render.js'
 
@@ -47,23 +49,23 @@ export function parseInboxDelivery(text) {
   }
 
 export function bumpAttachProgress() {
-    if (attachProgressTimer) return
-    attachProgressTimer = setTimeout(() => {
-      attachProgressTimer = 0
+    if (runtime.attachProgressTimer) return
+    runtime.attachProgressTimer = setTimeout(() => {
+      runtime.attachProgressTimer = 0
       if (state.view === 'chat') render()
     }, 200)
   }
 
 export function ensureFileInput() {
-    if (fileInput) return fileInput
-    fileInput = el('input', {
+    if (runtime.fileInput) return runtime.fileInput
+    runtime.fileInput = el('input', {
       type: 'file',
       multiple: true,
       class: 'attach-input',
       onchange: onPickFiles,
     })
-    document.body.append(fileInput)
-    return fileInput
+    document.body.append(runtime.fileInput)
+    return runtime.fileInput
   }
 
 export function makeAttachment(file) {
@@ -89,7 +91,7 @@ export function makeAttachment(file) {
 export function clearAttachments() {
     for (const att of state.attachments) {
       if (att.xhr) att.xhr.abort()
-      if (att.preview && ![...previewByPath.values()].includes(att.preview)) {
+      if (att.preview && ![...runtime.previewByPath.values()].includes(att.preview)) {
         try { URL.revokeObjectURL(att.preview) } catch { /* ignore */ }
       }
     }
@@ -100,8 +102,8 @@ export function removeAttachment(id) {
     const att = state.attachments.find((row) => row.id === id)
     if (!att) return
     if (att.xhr) att.xhr.abort()
-    if (att.preview && lightboxNode && lightboxNode.dataset.src === att.preview) closeImageLightbox()
-    if (att.preview && !previewByPath.has(att.path)) {
+    if (att.preview && runtime.lightboxNode && runtime.lightboxNode.dataset.src === att.preview) closeImageLightbox()
+    if (att.preview && !runtime.previewByPath.has(att.path)) {
       try { URL.revokeObjectURL(att.preview) } catch { /* ignore */ }
     }
     state.attachments = state.attachments.filter((row) => row.id !== id)
@@ -147,7 +149,7 @@ export function uploadOne(att, sessionId) {
           att.path = value.path
           att.progress = 1
           if (value.name) att.name = value.name
-          if (att.preview) previewByPath.set(value.path, att.preview)
+          if (att.preview) runtime.previewByPath.set(value.path, att.preview)
           resolve(att)
           return
         }
@@ -175,10 +177,10 @@ export function uploadOne(att, sessionId) {
 
 export function ensureUpload(att, sessionId) {
     if (att.status === 'uploaded' && att.path) return Promise.resolve(att)
-    const existing = uploadWaiters.get(att.id)
+    const existing = runtime.uploadWaiters.get(att.id)
     if (existing) return existing
-    const pending = uploadOne(att, sessionId).finally(() => uploadWaiters.delete(att.id))
-    uploadWaiters.set(att.id, pending)
+    const pending = uploadOne(att, sessionId).finally(() => runtime.uploadWaiters.delete(att.id))
+    runtime.uploadWaiters.set(att.id, pending)
     return pending
   }
 

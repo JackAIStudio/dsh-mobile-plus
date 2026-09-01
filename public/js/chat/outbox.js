@@ -2,9 +2,11 @@
  * Optimistic user bubbles and message delivery outbox.
  */
 import { state, chat, runtime } from '../state/state.js'
-import { call } from '../net/rpc.js'
+import { call, rpcId } from '../net/rpc.js'
 import { nudgeMux } from '../net/mux.js'
-import { clearAttachments, ensureUpload, parseInboxDelivery } from './upload.js'
+import { isRecord, imagesFromContent, textFromContent, pickString } from './fold.js'
+import { parseSlashLine } from './slash.js'
+import { clearAttachments, ensureUpload, parseInboxDelivery, isImageAttachment } from './upload.js'
 import { setDraft, focusComposer } from './composer.js'
 import { render } from '../ui/views/render.js'
 
@@ -95,7 +97,7 @@ export async function retryOutbox(item) {
     item.localStatus = 'sending'
     item.failed = false
     state.error = ''
-    chatScroll.stick = true
+    runtime.chatScroll.stick = true
     render()
     await deliverOutbox(item)
   }
@@ -109,7 +111,7 @@ export async function send() {
     const isCommand = Boolean(parsed && chat.slashCommands.some((row) => row.name === parsed.name) && pending.length === 0)
 
     state.error = ''
-    chatScroll.stick = true
+    runtime.chatScroll.stick = true
 
     if (isCommand) {
       setDraft('')

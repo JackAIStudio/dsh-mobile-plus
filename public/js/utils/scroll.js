@@ -10,36 +10,36 @@ export function nearBottom(node) {
 export function captureChatScroll() {
     const existing = document.querySelector('.chat-scroll')
     if (!existing || !existing.isConnected) return
-    if (chatScroll.restoring) return
-    chatScroll.top = existing.scrollTop
-    chatScroll.stick = nearBottom(existing)
+    if (runtime.chatScroll.restoring) return
+    runtime.chatScroll.top = existing.scrollTop
+    runtime.chatScroll.stick = nearBottom(existing)
   }
 
 export function onChatScroll(ev) {
-    if (chatScroll.restoring) return
+    if (runtime.chatScroll.restoring) return
     const node = ev.currentTarget
-    chatScroll.top = node.scrollTop
-    chatScroll.stick = nearBottom(node)
+    runtime.chatScroll.top = node.scrollTop
+    runtime.chatScroll.stick = nearBottom(node)
   }
 
 export function applyChatScroll(scroller) {
     if (!scroller) return
-    const gen = ++chatScroll.gen
-    chatScroll.restoring = true
+    const gen = ++runtime.chatScroll.gen
+    runtime.chatScroll.restoring = true
     const apply = () => {
-      if (gen !== chatScroll.gen || !scroller.isConnected) return
-      if (prependAdjust) {
-        const delta = scroller.scrollHeight - prependAdjust.height
-        scroller.scrollTop = prependAdjust.top + delta
-        chatScroll.top = scroller.scrollTop
-        prependAdjust = null
+      if (gen !== runtime.chatScroll.gen || !scroller.isConnected) return
+      if (runtime.prependAdjust) {
+        const delta = scroller.scrollHeight - runtime.prependAdjust.height
+        scroller.scrollTop = runtime.prependAdjust.top + delta
+        runtime.chatScroll.top = scroller.scrollTop
+        runtime.prependAdjust = null
         return
       }
-      if (chatScroll.stick) {
+      if (runtime.chatScroll.stick) {
         scroller.scrollTop = scroller.scrollHeight
-        chatScroll.top = scroller.scrollTop
+        runtime.chatScroll.top = scroller.scrollTop
       } else {
-        scroller.scrollTop = Math.min(chatScroll.top, scroller.scrollHeight)
+        scroller.scrollTop = Math.min(runtime.chatScroll.top, scroller.scrollHeight)
       }
     }
     apply()
@@ -47,16 +47,16 @@ export function applyChatScroll(scroller) {
       apply()
       requestAnimationFrame(() => {
         apply()
-        if (gen === chatScroll.gen) chatScroll.restoring = false
+        if (gen === runtime.chatScroll.gen) runtime.chatScroll.restoring = false
       })
     })
     const imgs = scroller.querySelectorAll('img')
     for (const img of imgs) {
       if (img.complete) continue
       const settle = () => {
-        if (gen !== chatScroll.gen || !scroller.isConnected || !chatScroll.stick) return
+        if (gen !== runtime.chatScroll.gen || !scroller.isConnected || !runtime.chatScroll.stick) return
         scroller.scrollTop = scroller.scrollHeight
-        chatScroll.top = scroller.scrollTop
+        runtime.chatScroll.top = scroller.scrollTop
       }
       img.addEventListener('load', settle, { once: true })
       img.addEventListener('error', settle, { once: true })
@@ -66,16 +66,16 @@ export function applyChatScroll(scroller) {
 export function captureListScroll() {
     const existing = document.querySelector('.mobile-list')
     if (!existing || !existing.isConnected) return
-    listScroll.top = existing.scrollTop
+    runtime.listScroll.top = existing.scrollTop
   }
 
 export function onListScroll(ev) {
-    listScroll.top = ev.currentTarget.scrollTop
+    runtime.listScroll.top = ev.currentTarget.scrollTop
   }
 
 export function applyListScroll(list) {
     if (!list) return
-    const top = listScroll.top
+    const top = runtime.listScroll.top
     list.scrollTop = top
     requestAnimationFrame(() => {
       if (list.isConnected) list.scrollTop = top
@@ -85,24 +85,24 @@ export function applyListScroll(list) {
 export function captureTodoScroll() {
     const existing = document.querySelector('.todo-dock-list')
     if (!existing || !existing.isConnected) return
-    todoScroll.top = existing.scrollTop
-    todoScroll.stick = nearBottom(existing)
+    runtime.todoScroll.top = existing.scrollTop
+    runtime.todoScroll.stick = nearBottom(existing)
   }
 
 export function onTodoScroll(ev) {
     const node = ev.currentTarget
-    todoScroll.top = node.scrollTop
-    todoScroll.stick = nearBottom(node)
+    runtime.todoScroll.top = node.scrollTop
+    runtime.todoScroll.stick = nearBottom(node)
   }
 
 export function applyTodoScroll(list) {
     if (!list) return
-    if (todoScroll.stick) list.scrollTop = list.scrollHeight
-    else list.scrollTop = Math.min(todoScroll.top, list.scrollHeight)
+    if (runtime.todoScroll.stick) list.scrollTop = list.scrollHeight
+    else list.scrollTop = Math.min(runtime.todoScroll.top, list.scrollHeight)
     requestAnimationFrame(() => {
       if (!list.isConnected) return
-      if (todoScroll.stick) list.scrollTop = list.scrollHeight
-      else list.scrollTop = Math.min(todoScroll.top, list.scrollHeight)
+      if (runtime.todoScroll.stick) list.scrollTop = list.scrollHeight
+      else list.scrollTop = Math.min(runtime.todoScroll.top, list.scrollHeight)
     })
   }
 
@@ -176,8 +176,8 @@ export function pinViewport() {
       else delete root.dataset.keyboard
       // scrollTo while the composer is focused fights iOS caret-scroll and
       // cancels pinyin composition. The top/left pin already tracks offsetTop.
-      const composerFocused = composerNode && document.activeElement === composerNode
-      if ((window.scrollX || window.scrollY) && !imeComposing && !composerFocused) {
+      const composerFocused = runtime.composerNode && document.activeElement === runtime.composerNode
+      if ((window.scrollX || window.scrollY) && !runtime.imeComposing && !composerFocused) {
         window.scrollTo(0, 0)
       }
     }

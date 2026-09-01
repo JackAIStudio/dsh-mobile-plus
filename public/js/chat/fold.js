@@ -2,6 +2,7 @@
  * Message fold and event compaction algorithms.
  */
 import { state, runtime } from '../state/state.js'
+import { basename } from '../utils/dom.js'
 
 export function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -591,6 +592,9 @@ export function withSessionTitle(item, title) {
       : { values }
     return { ...item, title, projections }
   }
+
+/** Per-session seq watermark for title projections (higher-seq-wins). */
+const titleWatermark = new Map()
 
 export function applySessionTitle(sessionId, value, seq) {
     const title = titleText(value)

@@ -3,6 +3,7 @@
  */
 import { state, chat, runtime } from '../state/state.js'
 import { el } from '../utils/dom.js'
+import { contextUsage } from '../chat/composer.js'
 import { reloadPaired } from '../state/route.js'
 import { render } from './views/render.js'
 import { openToday } from './views/ws-view.js'

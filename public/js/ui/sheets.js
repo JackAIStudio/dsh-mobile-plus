@@ -5,15 +5,17 @@ import { state, chat, runtime } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { writeStoredBoolean } from '../utils/storage.js'
 import { call } from '../net/rpc.js'
+import { contextUsage } from '../chat/composer.js'
 import { render } from './views/render.js'
 import { isStandalone, isSecurePage, isAppleMobile } from '../app.js'
-import { quotaSummary } from '../net/quota.js'
+import { quotaSummary, openQuotaSheet } from '../net/quota.js'
+import { reloadApp, isDarkTheme, toggleTheme } from './theme.js'
 import { navBack } from '../state/route.js'
 
 export function pwaSheet() {
     const secure = isSecurePage()
     const apple = isAppleMobile()
-    const canPrompt = Boolean(deferredInstallPrompt)
+    const canPrompt = Boolean(runtime.deferredInstallPrompt)
     const steps = apple
       ? [
         '点 Safari 底部中间的分享按钮（方框、箭头朝上）',
@@ -60,9 +62,9 @@ export function pwaSheet() {
   }
 
 export async function promptPwaInstall() {
-    if (!deferredInstallPrompt) return
-    const promptEvent = deferredInstallPrompt
-    deferredInstallPrompt = null
+    if (!runtime.deferredInstallPrompt) return
+    const promptEvent = runtime.deferredInstallPrompt
+    runtime.deferredInstallPrompt = null
     try {
       await promptEvent.prompt()
     } catch {
@@ -84,7 +86,7 @@ export function powerSheet() {
             el('button', { type: 'button', class: 'mobile-new', style: 'background: var(--dsw-alias-state-error-primary); border-color: transparent;', onclick: () => {
               if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务，如果你的宿主不是通过 pm2 等工具常驻运行的，可能需要手动去终端重新启动。')) return
               close()
-              void rpc('host.restart', {}).then((res) => {
+              void call('host.restart', {}).then((res) => {
                 if (!res.ok) alert('重启请求失败: ' + (res.error?.message || '未知错误'))
                 else setTimeout(() => reloadApp(), 1500)
               }).catch((err) => alert('发送重启指令失败: ' + err.message))
@@ -224,16 +226,16 @@ export function settingsSheet() {
     sections.push(el('div', { class: 'sheet-section' }, [
       el('div', { class: 'sheet-section-title' }, ['偏好与通知']),
       settingsToggleRow('深色模式', '跟随系统或手动切换浅色/深色主题', isDarkTheme(), () => toggleTheme()),
-      settingsToggleRow('任务完成通知', '后台任务完成时发送通知与提示音', notificationsEnabled, async (v) => {
+      settingsToggleRow('任务完成通知', '后台任务完成时发送通知与提示音', runtime.notificationsEnabled, async (v) => {
         if (v) {
           try {
-            if (!audioUnlocked) {
+            if (!runtime.audioUnlocked) {
               const audio = document.getElementById('peon-audio');
-              if (audio) { audio.volume = 0.01; audio.play().then(() => { audio.pause(); audio.volume = 1; audioUnlocked = true; }).catch(console.error); }
+              if (audio) { audio.volume = 0.01; audio.play().then(() => { audio.pause(); audio.volume = 1; runtime.audioUnlocked = true; }).catch(console.error); }
             }
             const p = await Notification.requestPermission();
             if (p === 'granted') {
-              notificationsEnabled = true;
+              runtime.notificationsEnabled = true;
               try { localStorage.setItem('dsh-mp-notify', 'true'); } catch {}
               alert('通知与提示音已开启！');
             } else {
@@ -243,7 +245,7 @@ export function settingsSheet() {
             console.error(e);
           }
         } else {
-          notificationsEnabled = false;
+          runtime.notificationsEnabled = false;
           try { localStorage.setItem('dsh-mp-notify', 'false'); } catch {}
         }
         render();
@@ -288,7 +290,7 @@ export function settingsSheet() {
           if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务。如果你的宿主不是通过常驻进程运行的，可能需要去终端手动重新启动。')) return
           state.sheet = null
           render()
-          void rpc('host.restart', {}).then((res) => {
+          void call('host.restart', {}).then((res) => {
             if (!res.ok) alert('重启请求失败: ' + (res.error?.message || '未知错误'))
             else setTimeout(() => reloadApp(), 1500)
           }).catch((err) => alert('发送重启指令失败: ' + err.message))

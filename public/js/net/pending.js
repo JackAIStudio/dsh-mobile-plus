@@ -7,7 +7,7 @@ import { call } from './rpc.js'
 import { render } from '../ui/views/render.js'
 
 export function ensureLive(sessionId) {
-    let row = sessionLive.get(sessionId)
+    let row = runtime.sessionLive.get(sessionId)
     if (!row) {
       row = {
         running: false,
@@ -16,7 +16,7 @@ export function ensureLive(sessionId) {
         liveAt: 0,
         pending: new Map(),
       }
-      sessionLive.set(sessionId, row)
+      runtime.sessionLive.set(sessionId, row)
     }
     return row
   }
@@ -74,7 +74,7 @@ export function hydrateSessionLive(item, listedAt = 0) {
   }
 
 export function decorateSession(item) {
-    const row = sessionLive.get(item.sessionId)
+    const row = runtime.sessionLive.get(item.sessionId)
     if (!row) return item
     return {
       ...item,
@@ -237,12 +237,12 @@ export async function refreshPending() {
 export function startPendingPoll() {
     stopPendingPoll()
     void refreshPending()
-    pendingPoll = setInterval(() => { void refreshPending() }, 2500)
+    runtime.pendingPoll = setInterval(() => { void refreshPending() }, 2500)
   }
 
 export function stopPendingPoll() {
-    if (pendingPoll !== null) {
-      clearInterval(pendingPoll)
-      pendingPoll = null
+    if (runtime.pendingPoll !== null) {
+      clearInterval(runtime.pendingPoll)
+      runtime.pendingPoll = null
     }
   }

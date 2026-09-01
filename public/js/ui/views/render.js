@@ -4,8 +4,11 @@
 import { state, chat, runtime } from '../../state/state.js'
 import { rootEl, el } from '../../utils/dom.js'
 import { captureChatScroll, applyChatScroll, captureListScroll, applyListScroll, captureTodoScroll, applyTodoScroll } from '../../utils/scroll.js'
+import { abandonComposerIme } from '../../chat/composer.js'
+import { closeImageLightbox } from '../lightbox.js'
+import { reloadApp } from '../theme.js'
 import { renderWorkspaces, loadWorkspaces, loadPresets, probeToday } from './ws-view.js'
-import { renderSessions, loadSessions } from './session-view.js'
+import { renderSessions, loadSessions, startListPoll } from './session-view.js'
 import { applyChatPage } from './chat-view.js'
 import { renderDir, renderPair } from './dir-view.js'
 import { settingsSheet, renderModelSheet, pwaSheet, powerSheet } from '../sheets.js'
@@ -13,6 +16,7 @@ import { quotaSheet, loadQuota } from '../../net/quota.js'
 import { ensureMux, ensureHost } from '../../net/mux.js'
 import { restoreRoute } from '../../state/route.js'
 import { startPendingPoll, stopPendingPoll } from '../../net/pending.js'
+import { boot } from '../../app.js'
 
 export async function enterApp() {
     state.error = ''
@@ -76,8 +80,8 @@ export function render() {
       return
     }
     if (state.view === 'chat') {
-      if (imeComposing) {
-        composerRenderQueued = true
+      if (runtime.imeComposing) {
+        runtime.composerRenderQueued = true
         return
       }
       applyChatPage()

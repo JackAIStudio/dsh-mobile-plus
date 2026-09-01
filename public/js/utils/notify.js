@@ -4,16 +4,16 @@
 import { runtime } from '../state/state.js'
 
 export function triggerTaskDoneNotification(title) {
-    if (!notificationsEnabled) return;
+    if (!runtime.notificationsEnabled) return;
     try {
       const audio = document.getElementById('peon-audio');
-      if (audio && audioUnlocked) {
+      if (audio && runtime.audioUnlocked) {
         audio.currentTime = 0;
         audio.play().catch(console.error);
       }
     } catch (e) { console.error('Audio play error', e); }
     
-    if (notificationsEnabled && Notification.permission === 'granted') {
+    if (runtime.notificationsEnabled && Notification.permission === 'granted') {
       try {
         navigator.serviceWorker.ready.then(registration => {
           registration.showNotification('任务完成', {

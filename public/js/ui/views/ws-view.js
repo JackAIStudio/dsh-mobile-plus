@@ -5,12 +5,14 @@ import { state, chat, runtime } from '../../state/state.js'
 import { el, workspaceTitle, abbreviateHomePath } from '../../utils/dom.js'
 import { formatTime, getTodayDateString } from '../../utils/time.js'
 import { call, timedFetch } from '../../net/rpc.js'
-import { renderQuotaBar } from '../../net/quota.js'
+import { renderQuotaBar, quotaSheet } from '../../net/quota.js'
 import { commitLocation, navBack, persistRoute } from '../../state/route.js'
 import { headerIcon, themeToggle, reloadButton, headerActions, pwaButton, globalSettingsButton } from '../theme.js'
+import { settingsSheet, pwaSheet, powerSheet } from '../sheets.js'
 import { stopMuxObservation } from '../../net/mux.js'
 import { render } from './render.js'
-import { loadSessions } from './session-view.js'
+import { loadSessions, renderHeaderTabs } from './session-view.js'
+import { enterDir } from './dir-view.js'
 
 export async function loadWorkspaces() {
     const data = await call('workspace.list', {})
@@ -30,7 +32,7 @@ export async function loadPresets() {
   }
 
 export async function openWorkspace(ws, opts = {}) {
-    chatQuery += 1
+    runtime.chatQuery += 1
     stopMuxObservation()
     state.workspace = ws
     state.view = 'sessions'
@@ -41,7 +43,7 @@ export async function openWorkspace(ws, opts = {}) {
     state.loadingMore = false
     state.createError = ''
     state.loading = true
-    listScroll.top = 0
+    runtime.listScroll.top = 0
     const mode = opts.locationMode || 'push'
     if (mode !== 'none') commitLocation({ view: 'sessions', workspaceId: ws.workspaceId }, mode)
     else persistRoute({ view: 'sessions', workspaceId: ws.workspaceId })
@@ -50,7 +52,7 @@ export async function openWorkspace(ws, opts = {}) {
   }
 
 export function showWorkspaces(locationMode = 'push') {
-    chatQuery += 1
+    runtime.chatQuery += 1
     stopMuxObservation()
     state.view = 'workspaces'
     state.workspace = null
@@ -73,8 +75,8 @@ export function visibleWorkspaces() {
     }
     if (state.sortMode === 'recent') {
       list.sort((a, b) => {
-        const sessionTimesA = (a.sessionIds || []).map(id => sessionLive.get(id)?.updatedAt || 0)
-        const sessionTimesB = (b.sessionIds || []).map(id => sessionLive.get(id)?.updatedAt || 0)
+        const sessionTimesA = (a.sessionIds || []).map(id => runtime.sessionLive.get(id)?.updatedAt || 0)
+        const sessionTimesB = (b.sessionIds || []).map(id => runtime.sessionLive.get(id)?.updatedAt || 0)
         const maxA = sessionTimesA.length ? Math.max(...sessionTimesA) : (a.updatedAt || 0)
         const maxB = sessionTimesB.length ? Math.max(...sessionTimesB) : (b.updatedAt || 0)
         return maxB - maxA
