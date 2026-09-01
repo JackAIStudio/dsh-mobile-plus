@@ -24,6 +24,8 @@
   const state = {
     view: 'boot', // boot | pair | error | workspaces | sessions | chat | dir
     listMode: (() => { try { return localStorage.getItem('dsh-mp-list-mode') || 'flat' } catch { return 'flat' } })(), // 'flat' | 'workspace'
+    sortMode: (() => { try { return localStorage.getItem('dsh-mp-sort-mode') || 'recent' } catch { return 'recent' } })(), // 'recent' | 'manual'
+    pinnedQuota: (() => { try { return localStorage.getItem('dsh-mp-pinned-quota') || 'auto' } catch { return 'auto' } })(), // 'auto' | 'deepseek' | 'grok'
     error: '',
     workspaces: [],
     wsQuery: '', // workspaces quick-search filter
@@ -46,7 +48,7 @@
     home: '', // host home from listDirectory, used to abbreviate workspace paths
     dirError: '',
     todayAvailable: false,
-    sheet: null, // 'settings' | 'model' | 'quota' | 'pwa' | null (bottom sheet)
+    sheet: null, // 'settings' | 'model' | 'quota' | 'pwa' | 'viewSort' | null (bottom sheet)
     sheetReturn: null, // 'settings' when the model sheet was opened from 设置
   }
 
@@ -1243,15 +1245,53 @@
     ])
   }
 
-  /** Chat-only header control: model / display / context live in one sheet. */
-  function settingsButton() {
-    const pct = contextUsage()
+  function findWorkspaceForSession(sessionId) {
+    if (!sessionId) return null
+    for (const ws of state.workspaces || []) {
+      if (ws.sessionIds && Array.isArray(ws.sessionIds) && ws.sessionIds.includes(sessionId)) {
+        return ws
+      }
+    }
+    return null
+  }
+
+  function switchListMode(mode) {
+    state.listMode = mode
+    try { localStorage.setItem('dsh-mp-list-mode', mode) } catch {}
+    if (mode === 'flat') {
+      state.workspace = null
+      state.view = 'sessions'
+      state.sessions = []
+      state.cursor = undefined
+      state.hasMoreSessions = false
+      commitLocation({ view: 'sessions' }, 'replace')
+      render()
+      void loadSessions()
+    } else {
+      state.workspace = null
+      state.view = 'workspaces'
+      commitLocation({ view: 'workspaces' }, 'replace')
+      render()
+      void loadWorkspaces()
+    }
+  }
+
+  function getTodayDateString() {
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  }
+
+  /** Global header control: model / display / notifications / theme / reload / power live in one sheet. */
+  function globalSettingsButton() {
+    const inChat = state.view === 'chat'
+    const pct = inChat ? contextUsage() : undefined
     const warn = pct !== undefined && pct >= 80
-    const open = state.sheet === 'settings' || state.sheet === 'model' || state.sheet === 'quota'
+    const open = state.sheet === 'settings' || state.sheet === 'model'
     return el('button', {
       type: 'button',
       class: 'mobile-settings-btn',
-      'aria-label': warn ? `设置，上下文已用 ${pct}%` : '设置',
+      'aria-label': warn ? `设置，上下文已用 ${pct}%` : '设置与控制',
       'aria-haspopup': 'dialog',
       'aria-expanded': open ? 'true' : 'false',
       onclick: () => {
@@ -1261,7 +1301,7 @@
       },
     }, [
       headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>'),
-      el('span', { class: 'mobile-settings-label' }, ['设置']),
+      inChat ? el('span', { class: 'mobile-settings-label' }, ['设置']) : null,
       warn ? el('span', { class: 'mobile-settings-dot', 'aria-hidden': 'true' }) : null,
     ])
   }
@@ -1737,33 +1777,78 @@
   const GROK_ICON = '<svg viewBox="0 0 34 33" width="14" height="13.6" fill="currentColor" aria-hidden="true"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341"/></svg>'
 
   /**
-   * Icon-only quota buttons (DeepSeek whale / Grok mark). Values live on the
-   * quota sheet: icons keep the mobile header slim, and the sheet stays the
-   * single "expand" surface if more providers show up later.
+   * Unified quota capsule button. Values live on the quota sheet:
+   * a single capsule keeps the mobile header slim and cleanly expandable.
+   * Supports user pinning a specific provider (DeepSeek / Grok) to the top capsule.
    */
   function renderQuotaBar() {
     const ds = deepseekView()
     const gk = grokView()
     if (!ds && !gk) return null
-    const iconBtn = (view, label, icon, name) => el('button', {
+
+    const pinned = state.pinnedQuota || 'auto'
+    let activeView = null
+    let displayIcon = WHALE_ICON
+    let label = '额度'
+
+    if (pinned === 'grok' && gk && gk.amount && gk.amount !== '查不到') {
+      activeView = gk
+      displayIcon = GROK_ICON
+      label = gk.amount.includes('已使用') ? gk.amount.replace('已使用', '').trim() : gk.amount
+    } else if (pinned === 'deepseek' && ds && ds.amount && ds.amount !== '查不到' && ds.amount !== '未配置') {
+      activeView = ds
+      displayIcon = WHALE_ICON
+      label = ds.amount
+    } else {
+      // auto preference: DeepSeek if has balance, else Grok
+      if (ds && ds.amount && ds.amount !== '查不到' && ds.amount !== '未配置') {
+        activeView = ds
+        displayIcon = WHALE_ICON
+        label = ds.amount
+      } else if (gk && gk.amount && gk.amount !== '查不到') {
+        activeView = gk
+        displayIcon = GROK_ICON
+        label = gk.amount.includes('已使用') ? gk.amount.replace('已使用', '').trim() : gk.amount
+      } else {
+        label = '额度'
+        displayIcon = WHALE_ICON
+      }
+    }
+
+    const hasAlert = ds?.kind === 'alert' || ds?.kind === 'error' || gk?.kind === 'alert' || gk?.kind === 'error'
+    const hasWarn = ds?.kind === 'warn' || gk?.kind === 'warn'
+    const isLoading = ds?.loading || gk?.loading
+
+    return el('button', {
       type: 'button',
       class: [
-        'chat-quota-icon',
-        name,
-        view.loading ? 'is-loading' : '',
-        view.kind === 'warn' ? 'is-warn' : '',
-        view.kind === 'alert' || view.kind === 'error' ? 'is-alert' : '',
+        'mobile-quota-capsule',
+        isLoading ? 'is-loading' : '',
+        hasAlert ? 'is-alert' : '',
+        hasWarn && !hasAlert ? 'is-warn' : '',
       ].filter(Boolean).join(' '),
-      title: `${label} ${view.amount}，点击查看详情`,
-      'aria-label': `${label} ${view.amount}，点击查看详情`,
+      title: `${quotaSummary()}，点击切换关注与查看详情`,
+      'aria-label': `${quotaSummary()}，点击切换关注与查看详情`,
       onclick: () => openQuotaSheet(),
     }, [
-      headerIcon(icon),
+      headerIcon(displayIcon),
+      el('span', { class: 'mobile-quota-text' }, [label]),
+      hasAlert || hasWarn ? el('span', { class: 'mobile-quota-dot', 'aria-hidden': 'true' }) : null,
     ])
-    return el('div', { class: 'chat-quota', 'aria-label': '账户额度' }, [
-      ds ? iconBtn(ds, 'DeepSeek 余额', WHALE_ICON, 'chat-quota-whale') : null,
-      gk ? iconBtn(gk, 'Grok 额度', GROK_ICON, 'chat-quota-grok') : null,
-    ])
+  }
+
+  function pinQuotaButton(providerKey, label) {
+    const isPinned = (state.pinnedQuota || 'auto') === providerKey
+    return el('button', {
+      type: 'button',
+      class: `quota-pin-btn${isPinned ? ' is-active' : ''}`,
+      'aria-label': isPinned ? `当前已在顶栏显示 ${label}` : `固定 ${label} 到顶栏显示`,
+      onclick: () => {
+        state.pinnedQuota = isPinned ? 'auto' : providerKey
+        try { localStorage.setItem('dsh-mp-pinned-quota', state.pinnedQuota) } catch {}
+        render()
+      },
+    }, [isPinned ? '★ 顶栏显示中' : '☆ 固定到顶栏'])
   }
 
   function quotaSheet() {
@@ -1771,11 +1856,16 @@
     const gk = grokView()
     const dsBody = !ds
       ? el('div', { class: 'quota-section' }, [
-          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['DeepSeek'])]),
+          el('div', { class: 'quota-section-head' }, [
+            el('span', { class: 'quota-section-title' }, ['DeepSeek']),
+          ]),
           el('p', { class: 'quota-hint' }, ['未安装余额插件，或本机暂不可查。']),
         ])
       : el('div', { class: 'quota-section' }, [
-          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['DeepSeek 余额'])]),
+          el('div', { class: 'quota-section-head' }, [
+            el('span', { class: 'quota-section-title' }, ['DeepSeek 余额']),
+            pinQuotaButton('deepseek', 'DeepSeek 余额'),
+          ]),
           el('p', { class: `quota-hero${ds.kind === 'warn' ? ' is-warn' : ds.kind === 'error' ? ' is-error' : ''}` }, [ds.amount]),
           ds.primary
             ? el('p', { class: 'quota-meta' }, [
@@ -1794,11 +1884,16 @@
     const resetAt = gk && gk.usage && gk.usage.windows && gk.usage.windows[0] && gk.usage.windows[0].resetsAt
     const gkBody = !gk
       ? el('div', { class: 'quota-section' }, [
-          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['Grok'])]),
+          el('div', { class: 'quota-section-head' }, [
+            el('span', { class: 'quota-section-title' }, ['Grok']),
+          ]),
           el('p', { class: 'quota-hint' }, ['未登录 Grok，或本机暂不可查。']),
         ])
       : el('div', { class: 'quota-section' }, [
-          el('div', { class: 'quota-section-head' }, [el('span', { class: 'quota-section-title' }, ['Grok 已使用额度'])]),
+          el('div', { class: 'quota-section-head' }, [
+            el('span', { class: 'quota-section-title' }, ['Grok 已使用额度']),
+            pinQuotaButton('grok', 'Grok 额度'),
+          ]),
           el('p', { class: `quota-hero${gk.kind === 'warn' ? ' is-warn' : gk.kind === 'alert' || gk.kind === 'error' ? ' is-alert' : ''}` }, [gk.amount]),
           gk.remaining !== undefined ? el('p', { class: 'quota-meta' }, [`还剩 ${gk.remaining}%`]) : null,
           productLine ? el('p', { class: 'quota-meta' }, [productLine]) : null,
@@ -1818,6 +1913,7 @@
             onclick: () => { void loadQuota(true) },
           }, [quota.status === 'loading' ? '刷新中…' : '刷新']),
         ]),
+        el('p', { class: 'sheet-hint', style: 'padding: 0 16px 8px; margin: 0;' }, ['提示：点击卡片右上角「固定到顶栏」，可自选将该账户余额显示在顶部胶囊。']),
         el('div', { class: 'sheet-body' }, [dsBody, gkBody]),
       ]),
     ])
@@ -4804,101 +4900,204 @@
   }
 
   /**
-   * Unified chat settings: model (drill into ModelSheet) + display toggles +
-   * context usage. These are set-and-forget, so they no longer sit above the
-   * composer eating vertical space.
+   * Unified global settings & control center: model/context (when in chat),
+   * display options, quota shortcut, theme, notifications, and system power actions.
    */
   function settingsSheet() {
-    const pct = contextUsage()
+    const inChat = state.view === 'chat'
+    const pct = inChat ? contextUsage() : undefined
     const pctWarn = pct !== undefined && pct >= 80
     const model = chat.currentModel
-    return el('div', { class: 'sheet-backdrop', onclick: () => { state.sheet = null; state.sheetReturn = null; render() } }, [
-      el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '设置', onclick: (ev) => { ev.stopPropagation() } }, [
-        el('div', { class: 'sheet-handle' }),
-        el('div', { class: 'sheet-title' }, ['设置']),
-        el('div', { class: 'sheet-body' }, [
-          el('div', { class: 'sheet-section' }, [
-            el('div', { class: 'sheet-section-title' }, ['模型']),
-            el('button', {
-              type: 'button',
-              class: 'sheet-nav-row',
-              'aria-haspopup': 'dialog',
-              'aria-label': '选择模型与思考强度',
-              onclick: () => void openModelSheet(),
-            }, [
-              el('div', { class: 'sheet-toggle-copy' }, [
-                el('span', { class: 'sheet-toggle-title' }, [model?.model || '选择模型']),
-                el('span', { class: 'sheet-toggle-desc' }, [
-                  model?.reasoningEffort
-                    ? `思考强度 ${model.reasoningEffort}`
-                    : '更换模型或思考强度',
-                ]),
-              ]),
-              el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
-            ]),
-            el('div', { class: 'sheet-toggle-row' }, [
-              el('div', { class: 'sheet-toggle-copy' }, [
-                el('span', { class: 'sheet-toggle-title' }, ['上下文占用']),
-                el('span', { class: 'sheet-toggle-desc' }, [
-                  pct === undefined
-                    ? '等模型回复后才会显示'
-                    : (pctWarn ? '接近上限，考虑新开会话' : '当前会话已用上下文窗口比例'),
-                ]),
-              ]),
-              el('span', {
-                class: pctWarn ? 'sheet-context-value sheet-context-value-warn' : 'sheet-context-value',
-              }, [pct === undefined ? '—' : `${pct}%`]),
+
+    const sections = []
+
+    if (inChat) {
+      sections.push(el('div', { class: 'sheet-section' }, [
+        el('div', { class: 'sheet-section-title' }, ['当前会话模型']),
+        el('button', {
+          type: 'button',
+          class: 'sheet-nav-row',
+          'aria-haspopup': 'dialog',
+          'aria-label': '选择模型与思考强度',
+          onclick: () => void openModelSheet(),
+        }, [
+          el('div', { class: 'sheet-toggle-copy' }, [
+            el('span', { class: 'sheet-toggle-title' }, [model?.model || '选择模型']),
+            el('span', { class: 'sheet-toggle-desc' }, [
+              model?.reasoningEffort
+                ? `思考强度 ${model.reasoningEffort}`
+                : '更换模型或思考强度',
             ]),
           ]),
-          el('div', { class: 'sheet-section' }, [
-            el('div', { class: 'sheet-section-title' }, ['显示']),
-            settingsToggleRow('工具调用', '在消息里显示工具调用折叠块', chat.showToolCalls, (v) => {
-              chat.showToolCalls = v
-              writeStoredBoolean('dsh.mobile.showToolCalls', v)
-              render()
-            }),
-            settingsToggleRow('显示系统消息', '显示宿主注入的系统提示消息（默认隐藏）', chat.showSystemMessages, (v) => {
-              chat.showSystemMessages = v
-              writeStoredBoolean('dsh.mobile.showSystemMessages', v)
-              render()
-            }),
-          ]),
-          el('div', { class: 'sheet-section' }, [
-            el('div', { class: 'sheet-section-title' }, ['额度']),
-            el('button', {
-              type: 'button',
-              class: 'sheet-nav-row',
-              'aria-haspopup': 'dialog',
-              'aria-label': '查看 DeepSeek 余额与 Grok 已使用额度',
-              onclick: () => openQuotaSheet(),
-            }, [
-              el('div', { class: 'sheet-toggle-copy' }, [
-                el('span', { class: 'sheet-toggle-title' }, ['DeepSeek / Grok']),
-                el('span', { class: 'sheet-toggle-desc' }, [quotaSummary()]),
-              ]),
-              el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
-            ]),
-          ]),
-          el('div', { class: 'sheet-section' }, [
-            el('div', { class: 'sheet-section-title' }, ['外观']),
-            settingsToggleRow('深色模式', '跟随系统或手动切换', isDarkTheme(), () => toggleTheme()),
-          ]),
-          el('div', { class: 'sheet-section' }, [
-            el('div', { class: 'sheet-section-title' }, ['页面']),
-            el('button', {
-              type: 'button',
-              class: 'sheet-nav-row',
-              'aria-label': '刷新页面',
-              onclick: () => reloadApp(),
-            }, [
-              el('div', { class: 'sheet-toggle-copy' }, [
-                el('span', { class: 'sheet-toggle-title' }, ['刷新页面']),
-                el('span', { class: 'sheet-toggle-desc' }, ['加到主屏幕后没有下拉刷新，卡住时点这里']),
-              ]),
-              el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['↻']),
-            ]),
-          ]),
+          el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
         ]),
+        el('div', { class: 'sheet-toggle-row' }, [
+          el('div', { class: 'sheet-toggle-copy' }, [
+            el('span', { class: 'sheet-toggle-title' }, ['上下文占用']),
+            el('span', { class: 'sheet-toggle-desc' }, [
+              pct === undefined
+                ? '等模型回复后才会显示'
+                : (pctWarn ? '接近上限，建议新开会话' : '当前会话已用上下文窗口比例'),
+            ]),
+          ]),
+          el('span', {
+            class: pctWarn ? 'sheet-context-value sheet-context-value-warn' : 'sheet-context-value',
+          }, [pct === undefined ? '—' : `${pct}%`]),
+        ]),
+      ]))
+
+      sections.push(el('div', { class: 'sheet-section' }, [
+        el('div', { class: 'sheet-section-title' }, ['会话显示偏好']),
+        settingsToggleRow('工具调用折叠', '在消息流中显示工具调用卡片', chat.showToolCalls, (v) => {
+          chat.showToolCalls = v
+          writeStoredBoolean('dsh.mobile.showToolCalls', v)
+          render()
+        }),
+        settingsToggleRow('显示系统提示', '显示宿主注入的系统提示消息', chat.showSystemMessages, (v) => {
+          chat.showSystemMessages = v
+          writeStoredBoolean('dsh.mobile.showSystemMessages', v)
+          render()
+        }),
+      ]))
+    }
+
+    sections.push(el('div', { class: 'sheet-section' }, [
+      el('div', { class: 'sheet-section-title' }, ['账户额度']),
+      el('button', {
+        type: 'button',
+        class: 'sheet-nav-row',
+        'aria-haspopup': 'dialog',
+        'aria-label': '查看 DeepSeek 余额与 Grok 已使用额度',
+        onclick: () => openQuotaSheet(),
+      }, [
+        el('div', { class: 'sheet-toggle-copy' }, [
+          el('span', { class: 'sheet-toggle-title' }, ['余额与用量明细']),
+          el('span', { class: 'sheet-toggle-desc' }, [quotaSummary()]),
+        ]),
+        el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
+      ]),
+    ]))
+
+    sections.push(el('div', { class: 'sheet-section' }, [
+      el('div', { class: 'sheet-section-title' }, ['列表排序']),
+      el('button', {
+        type: 'button',
+        class: `sheet-option${state.sortMode === 'recent' ? ' sheet-option-selected' : ''}`,
+        onclick: () => {
+          state.sortMode = 'recent'
+          try { localStorage.setItem('dsh-mp-sort-mode', 'recent') } catch {}
+          render()
+        },
+      }, [
+        el('div', { class: 'sheet-option-copy' }, [
+          el('span', { class: 'sheet-option-title' }, ['最近更新（默认）']),
+          el('span', { class: 'sheet-option-desc' }, ['按会话最后更新或活跃时间倒序排列']),
+        ]),
+        state.sortMode === 'recent' ? el('span', { class: 'sheet-option-check', 'aria-hidden': 'true' }, ['✓']) : null,
+      ]),
+      el('button', {
+        type: 'button',
+        class: `sheet-option${state.sortMode === 'manual' ? ' sheet-option-selected' : ''}`,
+        onclick: () => {
+          state.sortMode = 'manual'
+          try { localStorage.setItem('dsh-mp-sort-mode', 'manual') } catch {}
+          render()
+        },
+      }, [
+        el('div', { class: 'sheet-option-copy' }, [
+          el('span', { class: 'sheet-option-title' }, ['手动排序']),
+          el('span', { class: 'sheet-option-desc' }, ['保持 Web 桌面端自定义拖拽或创建的原生顺序']),
+        ]),
+        state.sortMode === 'manual' ? el('span', { class: 'sheet-option-check', 'aria-hidden': 'true' }, ['✓']) : null,
+      ]),
+    ]))
+
+    sections.push(el('div', { class: 'sheet-section' }, [
+      el('div', { class: 'sheet-section-title' }, ['偏好与通知']),
+      settingsToggleRow('深色模式', '跟随系统或手动切换浅色/深色主题', isDarkTheme(), () => toggleTheme()),
+      settingsToggleRow('任务完成通知', '后台任务完成时发送通知与提示音', notificationsEnabled, async (v) => {
+        if (v) {
+          try {
+            if (!audioUnlocked) {
+              const audio = document.getElementById('peon-audio');
+              if (audio) { audio.volume = 0.01; audio.play().then(() => { audio.pause(); audio.volume = 1; audioUnlocked = true; }).catch(console.error); }
+            }
+            const p = await Notification.requestPermission();
+            if (p === 'granted') {
+              notificationsEnabled = true;
+              try { localStorage.setItem('dsh-mp-notify', 'true'); } catch {}
+              alert('通知与提示音已开启！');
+            } else {
+              alert('请在系统或浏览器设置中允许通知权限。');
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          notificationsEnabled = false;
+          try { localStorage.setItem('dsh-mp-notify', 'false'); } catch {}
+        }
+        render();
+      }),
+    ]))
+
+    sections.push(el('div', { class: 'sheet-section' }, [
+      el('div', { class: 'sheet-section-title' }, ['系统与维护']),
+      el('button', {
+        type: 'button',
+        class: 'sheet-nav-row',
+        'aria-label': '刷新前端页面',
+        onclick: () => reloadApp(),
+      }, [
+        el('div', { class: 'sheet-toggle-copy' }, [
+          el('span', { class: 'sheet-toggle-title' }, ['刷新前端页面']),
+          el('span', { class: 'sheet-toggle-desc' }, ['加到主屏幕 PWA 或卡住时点此刷新']),
+        ]),
+        el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['↻']),
+      ]),
+      el('button', {
+        type: 'button',
+        class: 'sheet-nav-row',
+        'aria-label': '添加到主屏幕指南',
+        onclick: () => {
+          state.sheet = 'pwa'
+          render()
+        },
+      }, [
+        el('div', { class: 'sheet-toggle-copy' }, [
+          el('span', { class: 'sheet-toggle-title' }, ['添加到主屏幕 (PWA)']),
+          el('span', { class: 'sheet-toggle-desc' }, ['全屏独立 App 安装指南']),
+        ]),
+        el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['›']),
+      ]),
+      el('button', {
+        type: 'button',
+        class: 'sheet-nav-row',
+        style: 'color: var(--m-danger);',
+        'aria-label': '重启核心服务',
+        onclick: () => {
+          if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务。如果你的宿主不是通过常驻进程运行的，可能需要去终端手动重新启动。')) return
+          state.sheet = null
+          render()
+          void rpc('host.restart', {}).then((res) => {
+            if (!res.ok) alert('重启请求失败: ' + (res.error?.message || '未知错误'))
+            else setTimeout(() => reloadApp(), 1500)
+          }).catch((err) => alert('发送重启指令失败: ' + err.message))
+        },
+      }, [
+        el('div', { class: 'sheet-toggle-copy' }, [
+          el('span', { class: 'sheet-toggle-title' }, ['重启核心服务']),
+          el('span', { class: 'sheet-toggle-desc' }, ['重新加载宿主配置与后端插件']),
+        ]),
+        el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['⟳']),
+      ]),
+    ]))
+
+    return el('div', { class: 'sheet-backdrop', onclick: () => { state.sheet = null; state.sheetReturn = null; render() } }, [
+      el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '设置与控制', onclick: (ev) => { ev.stopPropagation() } }, [
+        el('div', { class: 'sheet-handle' }),
+        el('div', { class: 'sheet-title' }, ['设置与控制']),
+        el('div', { class: 'sheet-body' }, sections),
       ]),
     ])
   }
@@ -5126,14 +5325,19 @@
 
     return {
       header: el('header', { class: 'mobile-header' }, [
-        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack(state.workspace ? { view: 'sessions', workspaceId: state.workspace.workspaceId } : { view: 'workspaces' }) }, ['‹']),
+        el('button', {
+          type: 'button',
+          class: 'mobile-back',
+          'aria-label': '返回',
+          onclick: () => navBack(state.listMode === 'flat' ? { view: 'sessions' } : (state.workspace ? { view: 'sessions', workspaceId: state.workspace.workspaceId } : { view: 'workspaces' }))
+        }, ['‹']),
         el('h1', {
           class: 'mobile-title mobile-titleInline',
           title: state.session ? sessionTitle(state.session) : '聊天',
         }, [state.session ? sessionTitle(state.session) : '聊天']),
         headerActions([
-          reloadButton(),
-          settingsButton(),
+          renderQuotaBar(),
+          globalSettingsButton(),
         ]),
       ]),
       error: state.error ? el('p', { class: 'mobile-error mobile-pad' }, [state.error]) : null,
@@ -5145,7 +5349,7 @@
       todos: renderTodoDock(standingTodos()),
       pics,
       slash: renderSlashMenu(),
-      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : state.sheet === 'power' ? powerSheet() : null,
+      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : state.sheet === 'power' ? powerSheet() : state.sheet === 'pwa' ? pwaSheet() : null,
     }
   }
 
@@ -5180,88 +5384,114 @@
     applyTodoScroll(page.querySelector('.todo-dock-list'))
   }
 
+  function getSortedSessions() {
+    const items = state.sessions.slice()
+    if (state.sortMode === 'recent') {
+      items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    } else if (state.sortMode === 'manual' && state.workspace) {
+      const orderMap = new Map((state.workspace.sessionIds || []).map((id, idx) => [id, idx]))
+      items.sort((a, b) => (orderMap.get(a.sessionId) ?? 9999) - (orderMap.get(b.sessionId) ?? 9999))
+    }
+    return items
+  }
+
+  function renderHeaderTabs() {
+    return el('div', { class: 'mobile-header-left' }, [
+      el('div', { class: 'mobile-tabs' }, [
+        el('button', {
+          type: 'button',
+          class: state.listMode === 'workspace' ? 'mobile-tab mobile-tabActive' : 'mobile-tab',
+          onclick: () => switchListMode('workspace')
+        }, ['工作区']),
+        el('button', {
+          type: 'button',
+          class: state.listMode === 'flat' ? 'mobile-tab mobile-tabActive' : 'mobile-tab',
+          onclick: () => switchListMode('flat')
+        }, ['最近会话']),
+      ]),
+      el('button', {
+        type: 'button',
+        class: 'mobile-sort-toggle-btn',
+        title: state.sortMode === 'recent' ? '当前：按最近活跃时间排序（点击切换为手动排序）' : '当前：按 Web 端自定义顺序排序（点击切换为最近更新）',
+        'aria-label': state.sortMode === 'recent' ? '排序：最近更新' : '排序：手动排序',
+        onclick: () => {
+          state.sortMode = state.sortMode === 'recent' ? 'manual' : 'recent'
+          try { localStorage.setItem('dsh-mp-sort-mode', state.sortMode) } catch {}
+          render()
+        },
+      }, [
+        headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 12h12M10 18h4"/></svg>'),
+        el('span', { class: 'mobile-sort-toggle-label' }, [state.sortMode === 'recent' ? '最新' : '手动']),
+      ]),
+    ])
+  }
+
   function renderSessions() {
-    const old = state.workspace
+    const isSingleWs = Boolean(state.workspace)
     const page = el('div', { class: 'mobile' }, [
       el('header', { class: 'mobile-header' }, [
-        el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack({ view: 'workspaces' }) }, ['‹']),
-        !old ? el('div', { class: 'mobile-title mobile-titleInline mobile-tabs' }, [
-          el('button', { class: state.listMode === 'workspace' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('workspace') }, ['工作区']),
-          el('button', { class: state.listMode === 'flat' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('flat') }, ['最近会话']),
-        ]) : el('h1', { class: 'mobile-title mobile-titleInline' }, [workspaceTitle(old)]),
+        isSingleWs
+          ? el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => showWorkspaces('push') }, ['‹'])
+          : null,
+        !isSingleWs
+          ? renderHeaderTabs()
+          : el('h1', { class: 'mobile-title mobile-titleInline' }, [workspaceTitle(state.workspace)]),
         headerActions([
           renderQuotaBar(),
-
-          el('button', {
-            type: 'button',
-            class: 'mobile-header-icon',
-            'aria-label': '通知',
-            onclick: async () => {
-              try {
-                // unlock audio on first interaction
-                if (!audioUnlocked) {
-                  const audio = document.getElementById('peon-audio');
-                  if (audio) { audio.volume = 0.01; audio.play().then(() => { audio.pause(); audio.volume = 1; audioUnlocked = true; }).catch(console.error); }
-                }
-                
-                if (!notificationsEnabled) {
-                  const p = await Notification.requestPermission();
-                  if (p === 'granted') {
-                    notificationsEnabled = true;
-                    try { localStorage.setItem('dsh-mp-notify', 'true'); } catch {}
-                    alert('通知和提示音已开启！\n当离开应用时如果有任务完成，会收到推送。');
-                  } else {
-                    alert('请在浏览器设置中允许发送通知。');
-                  }
-                } else {
-                  notificationsEnabled = false;
-                  try { localStorage.setItem('dsh-mp-notify', 'false'); } catch {}
-                  alert('通知和提示音已关闭。');
-                }
-                render();
-              } catch (e) {
-                console.error(e);
-              }
-            }
-          }, [notificationsEnabled ? '🔔' : '🔕']),
-          reloadButton(),
+          globalSettingsButton(),
         ]),
       ]),
     ])
     if (state.sheet === 'quota') page.append(quotaSheet())
+    if (state.sheet === 'settings') page.append(settingsSheet())
     if (state.sheet === 'power') page.append(powerSheet())
+    if (state.sheet === 'pwa') page.append(pwaSheet())
 
     if (state.loading && state.sessions.length === 0 && !state.error) {
       page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['加载中…'])]))
       return page
     }
 
-    const presetRow = state.presets.length > 0
-      ? el('label', { class: 'mobile-preset' }, [
-          el('span', { class: 'mobile-presetLabel' }, ['Agent 模式']),
-          el('select', {
-            class: 'mobile-presetSelect',
-            value: state.presetId,
-            onchange: (ev) => { state.presetId = ev.target.value; render() },
-          }, state.presets.map((p) => el('option', { value: p.id }, [p.name || p.id, p.isDefault ? '（默认）' : '']))),
-        ])
-      : null
-    const presetEntry = state.presets.find((p) => p.id === state.presetId)
-    page.append(el('div', { class: 'mobile-create mobile-pad' }, [
-      presetRow,
-      presetEntry?.description ? el('p', { class: 'mobile-presetDescription' }, [presetEntry.description]) : null,
-      el('button', { type: 'button', class: 'mobile-new', disabled: state.creating, onclick: () => void createSession() }, [state.creating ? '创建中…' : '+ 新建会话']),
-    ]))
-
-    if (state.createError) page.append(el('p', { class: 'mobile-error mobile-pad' }, [state.createError]))
+    if (isSingleWs) {
+      const presetRow = state.presets.length > 0
+        ? el('label', { class: 'mobile-preset' }, [
+            el('span', { class: 'mobile-presetLabel' }, ['Agent 模式']),
+            el('select', {
+              class: 'mobile-presetSelect',
+              value: state.presetId,
+              onchange: (ev) => { state.presetId = ev.target.value; render() },
+            }, state.presets.map((p) => el('option', { value: p.id }, [p.name || p.id, p.isDefault ? '（默认）' : '']))),
+          ])
+        : null
+      const presetEntry = state.presets.find((p) => p.id === state.presetId)
+      page.append(el('div', { class: 'mobile-create mobile-pad' }, [
+        presetRow,
+        presetEntry?.description ? el('p', { class: 'mobile-presetDescription' }, [presetEntry.description]) : null,
+        el('button', { type: 'button', class: 'mobile-new', disabled: state.creating, onclick: () => void createSession() }, [state.creating ? '创建中…' : '+ 新建会话']),
+      ]))
+      if (state.createError) page.append(el('p', { class: 'mobile-error mobile-pad' }, [state.createError]))
+    }
 
     const list = el('ul', { class: 'mobile-list', onscroll: onListScroll })
-    for (const raw of state.sessions) {
+    const sorted = getSortedSessions()
+    for (const raw of sorted) {
       const s = decorateSession(raw)
+      const ws = findWorkspaceForSession(s.sessionId) || state.workspace
+      const wsName = ws ? workspaceTitle(ws) : ''
       list.append(el('li', {}, [
-        el('button', { type: 'button', class: 'mobile-row', onclick: () => { void openChat(s) } }, [
+        el('button', {
+          type: 'button',
+          class: 'mobile-row',
+          onclick: () => {
+            if (ws && !state.workspace) state.workspace = ws
+            void openChat(s)
+          }
+        }, [
           el('span', { class: 'mobile-rowMain' }, [
-            el('span', { class: 'mobile-rowTitle' }, [s.blank ? '新会话' : sessionTitle(s)]),
+            el('span', { class: 'mobile-rowHeader' }, [
+              el('span', { class: 'mobile-rowTitle' }, [s.blank ? '新会话' : sessionTitle(s)]),
+              wsName && !isSingleWs ? el('span', { class: 'mobile-rowWsBadge' }, [wsName]) : null,
+            ]),
             sessionStatusDot(s),
             el('span', { class: 'mobile-rowMeta' }, [formatTime(s.updatedAt)]),
           ]),
@@ -5277,7 +5507,7 @@
       ]))
     }
     if (!state.hasMoreSessions && state.sessions.length === 0 && !state.loading) {
-      page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['该工作区还没有会话，点上方按钮新建一个'])]))
+      page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, [isSingleWs ? '该工作区还没有会话，点上方按钮新建一个' : '暂无最近会话'])]))
     }
     return page
   }
@@ -5285,54 +5515,16 @@
   function renderWorkspaces() {
     const page = el('div', { class: 'mobile' }, [
       el('header', { class: 'mobile-header' }, [
-        el('div', { class: 'mobile-title mobile-titleInline mobile-tabs' }, [
-          el('button', { class: state.listMode === 'workspace' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('workspace') }, ['工作区']),
-          el('button', { class: state.listMode === 'flat' ? 'mobile-tab mobile-tabActive' : 'mobile-tab', onclick: () => switchListMode('flat') }, ['最近会话']),
-        ]),
+        renderHeaderTabs(),
         headerActions([
           renderQuotaBar(),
-          state.todayAvailable ? todayButton() : null,
-          isStandalone() ? null : pwaButton(),
-          
-          el('button', {
-            type: 'button',
-            class: 'mobile-header-icon',
-            'aria-label': '通知',
-            onclick: async () => {
-              try {
-                // unlock audio on first interaction
-                if (!audioUnlocked) {
-                  const audio = document.getElementById('peon-audio');
-                  if (audio) { audio.volume = 0.01; audio.play().then(() => { audio.pause(); audio.volume = 1; audioUnlocked = true; }).catch(console.error); }
-                }
-                
-                if (!notificationsEnabled) {
-                  const p = await Notification.requestPermission();
-                  if (p === 'granted') {
-                    notificationsEnabled = true;
-                    try { localStorage.setItem('dsh-mp-notify', 'true'); } catch {}
-                    alert('通知和提示音已开启！\n当离开应用时如果有任务完成，会收到推送。');
-                  } else {
-                    alert('请在浏览器设置中允许发送通知。');
-                  }
-                } else {
-                  notificationsEnabled = false;
-                  try { localStorage.setItem('dsh-mp-notify', 'false'); } catch {}
-                  alert('通知和提示音已关闭。');
-                }
-                render();
-              } catch (e) {
-                console.error(e);
-              }
-            }
-          }, [notificationsEnabled ? '🔔' : '🔕']),
-          reloadButton(),
-          themeToggle(),
+          globalSettingsButton(),
         ]),
       ]),
     ])
     if (state.sheet === 'quota') page.append(quotaSheet())
     if (state.sheet === 'pwa') page.append(pwaSheet())
+    if (state.sheet === 'settings') page.append(settingsSheet())
     if (state.sheet === 'power') page.append(powerSheet())
     if (state.createError) {
       page.append(el('p', { class: 'mobile-error' }, [state.createError]))
@@ -5341,8 +5533,47 @@
       page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['加载中…'])]))
       return page
     }
-    // Quick search: filters the workspace list without a rebuild (keeps IME
-    // and focus alive); Enter opens the first match.
+
+    const todayStr = getTodayDateString()
+    const todayMatch = state.workspaces.find((w) => workspaceTitle(w) === todayStr || (w.path && w.path.endsWith(todayStr)))
+    const quickCards = el('div', { class: 'mobile-quick-grid' }, [
+      el('button', {
+        type: 'button',
+        class: 'mobile-quick-card is-today',
+        disabled: state.creating,
+        onclick: () => {
+          if (todayMatch) {
+            void openWorkspace(todayMatch)
+          } else {
+            void openToday()
+          }
+        },
+      }, [
+        el('div', { class: 'mobile-quick-icon' }, [
+          headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/><rect x="10" y="13" width="4" height="4" rx="0.8" fill="currentColor" stroke="none"/></svg>')
+        ]),
+        el('div', { class: 'mobile-quick-info' }, [
+          el('span', { class: 'mobile-quick-title' }, ['今日工作区']),
+          el('span', { class: 'mobile-quick-desc' }, [todayMatch ? `${todayStr} · 已就绪` : `${todayStr} · 快速直达`]),
+        ]),
+        el('span', { class: 'mobile-chevron' }, ['›']),
+      ]),
+      el('button', {
+        type: 'button',
+        class: 'mobile-quick-card',
+        onclick: () => enterDir(),
+      }, [
+        el('div', { class: 'mobile-quick-icon' }, [
+          headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>')
+        ]),
+        el('div', { class: 'mobile-quick-info' }, [
+          el('span', { class: 'mobile-quick-title' }, ['选择/新建工作区']),
+          el('span', { class: 'mobile-quick-desc' }, ['浏览本地目录']),
+        ]),
+        el('span', { class: 'mobile-chevron' }, ['›']),
+      ]),
+    ])
+
     const search = el('input', {
       class: 'mobile-wsSearch',
       type: 'search',
@@ -5367,6 +5598,7 @@
         }
       },
     })
+
     const list = el('ul', { class: 'mobile-list' })
     const empty = el('p', { class: 'mobile-muted mobile-wsSearchEmpty', hidden: true }, [''])
     const refreshWorkspaceList = () => {
@@ -5381,10 +5613,7 @@
       }
     }
     refreshWorkspaceList()
-    page.append(search, list, empty)
-    page.append(el('div', { class: 'pad16' }, [
-      el('button', { type: 'button', class: 'mobile-button', onclick: () => enterDir() }, ['+ 新建工作区']),
-    ]))
+    page.append(search, quickCards, list, empty)
     return page
   }
 
@@ -5411,12 +5640,24 @@
 
   function visibleWorkspaces() {
     const q = state.wsQuery.trim().toLowerCase()
-    if (!q) return state.workspaces
-    return state.workspaces.filter((ws) => {
-      const name = workspaceTitle(ws)
-      const path = ws.path || ''
-      return name.toLowerCase().includes(q) || path.toLowerCase().includes(q)
-    })
+    let list = state.workspaces.slice()
+    if (q) {
+      list = list.filter((ws) => {
+        const name = workspaceTitle(ws)
+        const path = ws.path || ''
+        return name.toLowerCase().includes(q) || path.toLowerCase().includes(q)
+      })
+    }
+    if (state.sortMode === 'recent') {
+      list.sort((a, b) => {
+        const sessionTimesA = (a.sessionIds || []).map(id => sessionLive.get(id)?.updatedAt || 0)
+        const sessionTimesB = (b.sessionIds || []).map(id => sessionLive.get(id)?.updatedAt || 0)
+        const maxA = sessionTimesA.length ? Math.max(...sessionTimesA) : (a.updatedAt || 0)
+        const maxB = sessionTimesB.length ? Math.max(...sessionTimesB) : (b.updatedAt || 0)
+        return maxB - maxA
+      })
+    }
+    return list
   }
 
   async function openDir(path) {
@@ -5437,9 +5678,15 @@
     const page = el('div', { class: 'mobile dir-browser' }, [
       el('header', { class: 'mobile-header' }, [
         el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => navBack({ view: 'workspaces' }) }, ['‹']),
-        el('h1', { class: 'mobile-title' }, ['选择目录']),
+        el('h1', { class: 'mobile-title mobile-titleInline' }, ['选择目录']),
+        headerActions([
+          globalSettingsButton(),
+        ]),
       ]),
     ])
+    if (state.sheet === 'settings') page.append(settingsSheet())
+    if (state.sheet === 'power') page.append(powerSheet())
+    if (state.sheet === 'pwa') page.append(pwaSheet())
     if (state.dirError) {
       page.append(el('div', { class: 'mobile-empty' }, [
         el('p', { class: 'mobile-error' }, [state.dirError]),

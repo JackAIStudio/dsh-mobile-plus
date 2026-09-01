@@ -2506,30 +2506,229 @@ html[data-keyboard='1'] .mobile-pair .pair-logo {
 .pad16 { padding: 16px; }
 
   
-.mobile-tabs {
-  display: flex;
+/* ── Header Left Container & Compact Segmented Tabs ────────────────── */
+.mobile-header-left {
+  display: inline-flex;
   align-items: center;
-  gap: 16px;
-  overflow-x: auto;
+  gap: 6px;
+  flex: none;
 }
-.mobile-tabs::-webkit-scrollbar {
-  display: none;
+.mobile-tabs {
+  display: inline-flex;
+  align-items: center;
+  background: var(--m-bg-input);
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--m-border);
+  gap: 2px;
+  flex: none;
 }
 .mobile-tab {
   background: transparent;
   border: none;
-  font-size: 17px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--mobile-muted);
-  padding: 4px 8px;
-  margin: 0;
+  color: var(--m-text-secondary);
+  padding: 4px 10px;
+  border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
+  transition: all 0.15s ease;
 }
 .mobile-tab.mobile-tabActive {
-  color: var(--mobile-text);
+  background: var(--m-bg-raised);
+  color: var(--m-text);
   font-weight: 600;
-  border-bottom: 2px solid var(--mobile-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.mobile-sort-toggle-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-bg-input);
+  color: var(--m-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  flex: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.mobile-sort-toggle-btn:active {
+  background: var(--m-accent-soft);
+  border-color: var(--m-accent);
+  color: var(--m-accent);
+}
+.mobile-sort-toggle-btn .mobile-header-icon {
+  width: auto;
+  height: auto;
+  display: flex;
+  align-items: center;
+}
+.mobile-sort-toggle-btn .mobile-header-icon svg {
+  width: 13px;
+  height: 13px;
+}
+.mobile-sort-toggle-label {
+  font-size: 11px;
+}
+
+/* ── Top Bar Quota Capsule ─────────────────────────────────────────── */
+.mobile-quota-capsule {
+  appearance: none;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 15px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.mobile-quota-capsule:active {
+  background: var(--m-accent-soft);
+  border-color: var(--m-accent);
+}
+.mobile-quota-capsule .mobile-header-icon {
+  width: auto;
+  height: auto;
+  display: flex;
+  align-items: center;
+}
+.mobile-quota-capsule .mobile-header-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.mobile-quota-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--m-warning);
+  flex: none;
+}
+.mobile-quota-capsule.is-alert .mobile-quota-dot {
+  background: var(--m-danger);
+}
+.mobile-quota-capsule.is-loading {
+  opacity: 0.7;
+}
+
+/* ── Quick Action Cards (Today & New Workspace) ────────────────────── */
+.mobile-quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+.mobile-quick-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--m-shadow);
+  transition: transform 0.1s ease, border-color 0.12s ease;
+}
+.mobile-quick-card:active {
+  transform: scale(0.98);
+  background: var(--m-bg-input);
+}
+.mobile-quick-card.is-today {
+  background: var(--m-accent-soft);
+  border-color: color-mix(in srgb, var(--m-accent) 35%, transparent);
+}
+.mobile-quick-card.is-today .mobile-quick-icon {
+  color: var(--m-accent);
+}
+.mobile-quick-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--m-text-secondary);
+  flex: none;
+}
+.mobile-quick-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.mobile-quick-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mobile-quick-desc {
+  font-size: 11px;
+  color: var(--m-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Session Row Workspace Badge ───────────────────────────────────── */
+.mobile-rowHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.mobile-rowWsBadge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  max-width: 110px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Quota Pinning Affordance ───────────────────────────────────────── */
+.quota-pin-btn {
+  appearance: none;
+  border: 1px solid var(--m-border);
+  border-radius: 6px;
+  background: var(--m-bg-input);
+  color: var(--m-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.quota-pin-btn:active {
+  background: var(--m-bg-raised);
+}
+.quota-pin-btn.is-active {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  border-color: color-mix(in srgb, var(--m-accent) 40%, transparent);
+  font-weight: 600;
 }
 
 </style>
@@ -2537,6 +2736,6 @@ html[data-keyboard='1'] .mobile-pair .pair-logo {
 <body>
   <audio id="peon-audio" src="/audio/peon.mp3" preload="none"></audio>
   <div id="root"></div>
-  <script src="/mp/app.js?v=0.4.1"></script>
+  <script src="/mp/app.js?v=0.4.5"></script>
 </body>
 </html>
