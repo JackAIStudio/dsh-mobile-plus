@@ -234,10 +234,17 @@ export async function refreshPending() {
     }
   }
 
-export function startPendingPoll() {
+export function startPendingPoll(forceImmediate = true) {
     stopPendingPoll()
-    void refreshPending()
-    runtime.pendingPoll = setInterval(() => { void refreshPending() }, 2500)
+    if (forceImmediate) void refreshPending()
+    if (runtime.mux && runtime.mux.sseAlive) return
+    runtime.pendingPoll = setInterval(() => {
+      if (runtime.mux && runtime.mux.sseAlive) {
+        stopPendingPoll()
+        return
+      }
+      void refreshPending()
+    }, 10_000)
   }
 
 export function stopPendingPoll() {

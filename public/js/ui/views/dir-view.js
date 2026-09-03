@@ -6,8 +6,7 @@ import { el, basename } from '../../utils/dom.js'
 import { call } from '../../net/rpc.js'
 import { parsePairInput, acceptPair } from '../../net/pair.js'
 import { commitLocation, navBack, reloadPaired, persistRoute } from '../../state/route.js'
-import { headerIcon, themeToggle, reloadButton, headerActions, globalSettingsButton } from '../theme.js'
-import { settingsSheet, pwaSheet, powerSheet } from '../sheets.js'
+import { headerIcon, headerActions, globalSettingsButton } from '../theme.js'
 import { render } from './render.js'
 import { loadWorkspaces, openWorkspace } from './ws-view.js'
 
@@ -45,9 +44,6 @@ export function renderDir() {
         ]),
       ]),
     ])
-    if (state.sheet === 'settings') page.append(settingsSheet())
-    if (state.sheet === 'power') page.append(powerSheet())
-    if (state.sheet === 'pwa') page.append(pwaSheet())
     if (state.dirError) {
       page.append(el('div', { class: 'mobile-empty' }, [
         el('p', { class: 'mobile-error' }, [state.dirError]),
@@ -95,16 +91,16 @@ export function renderDir() {
 
 export function renderPair() {
     const hint = el('p', { class: 'mobile-muted mobile-pairHint', role: 'status' }, [
-      state.dirError || '粘贴桌面端复制的配对链接以连接此设备。',
+      state.dirError || '输入桌面端 6 位配对码，或粘贴配对链接以连接此设备。',
     ])
     if (state.dirError) hint.className = 'mobile-error mobile-pairHint'
     const input = el('input', {
       id: 'mobile-pair-link',
       class: 'mobile-pairInput',
       type: 'text',
-      inputmode: 'url',
+      inputmode: 'text',
       enterkeyhint: 'go',
-      placeholder: 'https://your-host/mp/?pair=…',
+      placeholder: '输入 6 位配对码或粘贴链接…',
       autocomplete: 'off',
       autocapitalize: 'off',
       autocorrect: 'off',
@@ -128,7 +124,7 @@ export function renderPair() {
       el('h1', { class: 'mobile-title', id: 'mobile-pair-title' }, ['设备配对']),
       hint,
       el('div', { class: 'mobile-pairToolbar' }, [
-        el('label', { class: 'mobile-pairLabel', for: 'mobile-pair-link' }, ['配对链接']),
+        el('label', { class: 'mobile-pairLabel', for: 'mobile-pair-link' }, ['配对码 / 链接']),
         el('button', { type: 'button', class: 'mobile-pairPaste', onclick: () => { void pasteInto() } }, ['粘贴']),
       ]),
       input,
@@ -138,7 +134,7 @@ export function renderPair() {
       ev.preventDefault()
       const token = parsePairInput(input.value)
       if (!token) {
-        state.dirError = '请输入有效的配对链接。'
+        state.dirError = '请输入 6 位配对码或有效的配对链接。'
         render()
         return
       }

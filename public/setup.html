@@ -58,7 +58,7 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    width: 560px;
+    width: 600px;
     max-width: 100%;
     padding: 24px;
     border-radius: 24px;
@@ -89,10 +89,37 @@
   .badge-disconnected { color: var(--warn); background: var(--hover); }
   .badge-stopped { color: var(--error); background: var(--hover); }
   .badge-public { color: var(--brand); background: var(--hover); }
-  .qr-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; border-radius: 12px; background: var(--bg-base); }
-  .qr { display: block; width: 184px; height: 184px; }
+  .qr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; width: 100%; }
+  .qr-card {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 14px; border: 1px solid var(--border-l2); border-radius: 14px;
+    background: var(--bg-base);
+  }
+  .qr-card-header { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; text-align: center; }
+  .qr-card-title { font-size: 14px; font-weight: 600; color: var(--label-primary); }
+  .qr-card-desc { font-size: 12px; color: var(--label-secondary); }
+  .qr-card .qr { width: 160px; height: 160px; display: block; border-radius: 8px; }
+  .qr-card .copy-link { width: 100%; justify-content: center; }
+  .card-origin {
+    display: inline-block; max-width: 100%; padding: 2px 8px; border-radius: 6px;
+    background: var(--hover); color: var(--label-secondary); font-family: var(--mono);
+    font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;
+  }
   .expired { margin: 0; color: var(--error); font-size: 13px; }
   .expiry { margin: 0; color: var(--label-secondary); font-size: 12px; }
+  .pair-code-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+    padding: 10px 14px; border: 1px dashed var(--border-l2); border-radius: 12px;
+    background: var(--bg-base);
+  }
+  .pair-code-info { display: flex; flex-direction: column; gap: 2px; }
+  .pair-code-title { font-size: 13px; font-weight: 500; color: var(--label-primary); }
+  .pair-code-desc { font-size: 11px; color: var(--label-tertiary); }
+  .pair-code-display { display: flex; align-items: center; gap: 8px; flex: none; }
+  .pair-code-val {
+    font-family: var(--mono); font-size: 18px; font-weight: 700; letter-spacing: 2px;
+    color: var(--brand); background: var(--hover); padding: 2px 8px; border-radius: 6px;
+  }
   .hint { margin: 0; color: var(--label-secondary); font-size: 13px; }
   .pair-links { display: flex; flex-direction: column; gap: 8px; }
   .pair-link-row {
@@ -163,50 +190,56 @@
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">设备配对</span>
+      <span class="card-title">扫码配对手机</span>
       <span class="badges">
-        <span id="badge-public" class="badge badge-public">公网</span>
+        <span id="badge-public" class="badge badge-public">双通道就绪</span>
         <span id="badge-status" class="badge badge-waiting">等待设备连接</span>
       </span>
     </div>
-    <div class="qr-wrap"><img id="qr" class="qr" alt="手机扫码配对二维码" /></div>
+    <div id="qr-grid" class="qr-grid">
+      <div id="card-public" class="qr-card">
+        <div class="qr-card-header">
+          <span class="qr-card-title">🌐 公网远程</span>
+          <span class="qr-card-desc">适合外出 / 4G / 酒店</span>
+          <code id="origin-public" class="card-origin"></code>
+        </div>
+        <img id="qr-public" class="qr" alt="公网配对二维码" />
+        <button id="copy-public" type="button" class="copy-link">复制公网链接</button>
+      </div>
+      <div id="card-lan" class="qr-card">
+        <div class="qr-card-header">
+          <span class="qr-card-title">🟢 局域网极速</span>
+          <span class="qr-card-desc">适合同 Wi-Fi / 热点</span>
+          <code id="origin-lan" class="card-origin"></code>
+        </div>
+        <img id="qr-lan" class="qr" alt="局域网配对二维码" />
+        <button id="copy-lan" type="button" class="copy-link">复制局域网链接</button>
+      </div>
+    </div>
+    <div class="pair-code-banner">
+      <div class="pair-code-info">
+        <span class="pair-code-title">手机已打开页面？输入 6 位配对码</span>
+        <span class="pair-code-desc">在手机设备配对页直接输入此数字，无需复制长链接</span>
+      </div>
+      <div class="pair-code-display">
+        <code id="pair-code-val" class="pair-code-val">------</code>
+        <button id="copy-code" type="button" class="copy-link" style="padding: 0 10px; min-height: 28px; font-size: 12px;">复制</button>
+      </div>
+    </div>
     <p id="expiry" class="expiry"></p>
   </div>
 
-  <p id="hint" class="hint">公网链接：设备无需与本机处于同一网络</p>
   <div class="pair-links">
     <div class="pair-link-row">
       <div class="pair-link-text">
-        <span class="pair-link-label">手机配对链接</span>
-        <code id="url" class="link"></code>
-      </div>
-      <button id="copy-phone" type="button" class="copy-link" disabled>复制手机链接</button>
-    </div>
-    <div class="pair-link-row">
-      <div class="pair-link-text">
-        <span class="pair-link-label">电脑配对链接</span>
+        <span class="pair-link-label">电脑本机调试链接</span>
         <code id="local-url" class="link"></code>
       </div>
       <button id="copy-desktop" type="button" class="copy-link" disabled>复制电脑链接</button>
     </div>
   </div>
-  <p class="one-time-hint">两条链接共用同一枚一次性令牌；任意设备配对成功后，另一条链接立即失效。</p>
+  <p class="one-time-hint">所有链接共用同一枚一次性令牌；任意设备配对成功后，其他链接立即失效。</p>
   <p id="stopped-hint" class="stopped-hint" hidden>已停止远程访问。点击"刷新二维码"重新开启。</p>
-
-  <fieldset class="addresses">
-    <legend>选择二维码指向的网络</legend>
-    <label class="address">
-      <input id="net-public" type="radio" name="mp-network" />
-      <span>公网地址</span>
-      <code id="public-base" class="address-value"></code>
-    </label>
-    <label class="address">
-      <input id="net-local" type="radio" name="mp-network" checked />
-      <span>本机</span>
-      <code id="local-base" class="address-value"></code>
-    </label>
-    <p id="address-hint" class="address-hint">未配置 publicBaseUrl 时只生成本机链接。云主机或反代请在插件配置里填写你自己的公网地址。</p>
-  </fieldset>
 
   <div class="actions">
     <button id="stop" type="button" class="action" disabled>停止</button>
@@ -225,15 +258,13 @@
 
 <script>
   const $ = (id) => document.getElementById(id)
-  const qrEl = $('qr'), expiryEl = $('expiry'), hintEl = $('hint')
-  const urlEl = $('url'), localUrlEl = $('local-url')
-  const badgePublic = $('badge-public'), badgeStatus = $('badge-status')
+  const qrPublicEl = $('qr-public'), qrLanEl = $('qr-lan'), expiryEl = $('expiry')
+  const cardPublic = $('card-public'), cardLan = $('card-lan')
+  const localUrlEl = $('local-url'), badgePublic = $('badge-public'), badgeStatus = $('badge-status')
   const stoppedHint = $('stopped-hint'), errorEl = $('error')
-  const copyPhone = $('copy-phone'), copyDesktop = $('copy-desktop')
+  const copyPublic = $('copy-public'), copyLan = $('copy-lan'), copyDesktop = $('copy-desktop')
+  const pairCodeVal = $('pair-code-val'), copyCode = $('copy-code')
   const stopBtn = $('stop'), refreshBtn = $('refresh')
-  const netPublic = $('net-public'), netLocal = $('net-local')
-  const publicBase = $('public-base'), localBase = $('local-base')
-  const addressHint = $('address-hint')
   const devicesEmpty = $('devices-empty'), deviceList = $('device-list')
 
   let issue = null
@@ -277,12 +308,21 @@
   function renderQr() {
     if (!issue) return
     const hasPublic = typeof issue.publicBaseUrl === 'string' && issue.publicBaseUrl !== ''
-    const publicQr = hasPublic && netPublic.checked
-    badgePublic.hidden = !publicQr
-    qrEl.src = publicQr ? issue.qr : issue.qrLocal
-    hintEl.textContent = publicQr ? '公网链接：设备无需与本机处于同一网络' : '无法扫码？可直接打开下方配对链接'
+    const hasLan = typeof issue.lanUrl === 'string' && issue.lanUrl !== ''
+    cardPublic.hidden = !hasPublic
+    cardLan.hidden = !hasLan
+    if (hasPublic) qrPublicEl.src = issue.qr
+    if (hasLan) qrLanEl.src = issue.qrLan || issue.qrLocal
+    badgePublic.textContent = (hasPublic && hasLan) ? '双通道就绪' : (hasPublic ? '公网就绪' : '局域网就绪')
     const expired = Date.now() > issue.expiresAt
-    expiryEl.textContent = expired ? '二维码已过期，请刷新' : `二维码有效至 ${formatClock(issue.expiresAt)}`
+    if (pairCodeVal) {
+      if (expired || stopped) {
+        pairCodeVal.textContent = '------'
+      } else if (issue.code) {
+        pairCodeVal.textContent = issue.code.length === 6 ? `${issue.code.slice(0, 3)} ${issue.code.slice(3)}` : issue.code
+      }
+    }
+    expiryEl.textContent = expired ? '二维码已过期，请刷新' : `二维码有效至 ${formatClock(issue.expiresAt)} · 一次性有效`
     expiryEl.className = expired ? 'expired' : 'expiry'
   }
 
@@ -339,22 +379,15 @@
       stopped = false
       stoppedHint.hidden = true
       stopBtn.disabled = false
-      urlEl.textContent = data.url
-      urlEl.title = data.url
       localUrlEl.textContent = data.localUrl
       localUrlEl.title = data.localUrl
-      const hasPublic = typeof data.publicBaseUrl === 'string' && data.publicBaseUrl !== ''
-      publicBase.textContent = hasPublic ? data.publicBaseUrl : '未配置'
-      netPublic.disabled = !hasPublic
-      netPublic.checked = hasPublic
-      netLocal.checked = !hasPublic
-      if (addressHint) {
-        addressHint.textContent = hasPublic
-          ? '远程设备不在同一网络时请使用公网地址；本机地址仅限这台电脑的浏览器。'
-          : '未配置 publicBaseUrl 时只生成本机链接。云主机或反代请在插件配置里填写你自己的公网地址。'
+      const originPublic = $('origin-public'), originLan = $('origin-lan')
+      if (originPublic) {
+        try { originPublic.textContent = new URL(data.url).origin } catch { originPublic.textContent = data.publicBaseUrl || '' }
       }
-      try { localBase.textContent = new URL(data.localUrl).origin } catch { localBase.textContent = data.localUrl }
-      copyPhone.disabled = false
+      if (originLan) {
+        try { originLan.textContent = new URL(data.lanUrl || data.localUrl).origin } catch { originLan.textContent = data.lanIp || '' }
+      }
       copyDesktop.disabled = false
       renderQr()
     } catch (err) {
@@ -378,16 +411,17 @@
     if (issue) renderQr()
   }
 
-  netPublic.onchange = renderQr
-  netLocal.onchange = renderQr
-  copyPhone.onclick = () => issue && copyText(issue.url, copyPhone, '复制手机链接')
+  copyPublic.onclick = () => issue && copyText(issue.url, copyPublic, '复制公网链接')
+  copyLan.onclick = () => issue && copyText(issue.lanUrl || issue.localUrl, copyLan, '复制局域网链接')
   copyDesktop.onclick = () => issue && copyText(issue.localUrl, copyDesktop, '复制电脑链接')
+  copyCode.onclick = () => issue && issue.code && !stopped && copyText(issue.code, copyCode, '复制')
   refreshBtn.onclick = mint
   stopBtn.onclick = async () => {
     await fetch('/mp/pair/stop', { method: 'POST' }).catch(() => {})
     stopped = true
     stopBtn.disabled = true
     stoppedHint.hidden = false
+    if (pairCodeVal) pairCodeVal.textContent = '------'
     poll()
   }
 

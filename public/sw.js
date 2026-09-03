@@ -1,5 +1,5 @@
 /* PWA worker for the /mp mobile shell only — never caches API or session data. */
-const CACHE_NAME = 'dsh-mobile-plus-shell-v1'
+const CACHE_NAME = 'dsh-mobile-plus-shell-v4'
 const OFFLINE_URL = '/mp/offline.html'
 const SHELL_PATHS = new Set([
   '/mp/',

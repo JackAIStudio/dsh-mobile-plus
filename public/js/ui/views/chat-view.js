@@ -15,8 +15,7 @@ import { renderSlashMenu, loadSlashCatalog } from '../../chat/slash.js'
 import { ensureComposer, buildInputbar, syncInputbar, syncComposerDraft, setDraft } from '../../chat/composer.js'
 import { reconcileOutbox, openOutbox } from '../../chat/outbox.js'
 import { ensureLive, startPendingPoll } from '../../net/pending.js'
-import { renderQuotaBar, quotaSheet } from '../../net/quota.js'
-import { settingsSheet, renderModelSheet, pwaSheet, powerSheet } from '../sheets.js'
+import { renderQuotaBar } from '../../net/quota.js'
 import { captureChatScroll, applyChatScroll, captureTodoScroll, applyTodoScroll, onChatScroll } from '../../utils/scroll.js'
 import { composerSrc, openImageLightbox } from '../lightbox.js'
 import { headerIcon, themeToggle, reloadButton, headerActions, pwaButton, globalSettingsButton } from '../theme.js'
@@ -252,7 +251,6 @@ export function renderChatParts() {
       todos: renderTodoDock(standingTodos()),
       pics,
       slash: renderSlashMenu(),
-      sheet: state.sheet === 'model' ? renderModelSheet() : state.sheet === 'settings' ? settingsSheet() : state.sheet === 'quota' ? quotaSheet() : state.sheet === 'power' ? powerSheet() : state.sheet === 'pwa' ? pwaSheet() : null,
     }
   }
 
@@ -267,7 +265,7 @@ export function applyChatPage() {
     const above = chatAboveBar(parts)
     let page = rootEl.querySelector(':scope > .mobile.chat')
     if (!page) {
-      page = el('div', { class: 'mobile chat' }, [...above, buildInputbar(), parts.sheet])
+      page = el('div', { class: 'mobile chat' }, [...above, buildInputbar()])
       rootEl.replaceChildren(page)
     } else {
       const liveBar = page.querySelector(':scope > .chat-inputbar')
@@ -281,7 +279,6 @@ export function applyChatPage() {
         for (const node of above) page.append(node)
         page.append(buildInputbar())
       }
-      if (parts.sheet) page.append(parts.sheet)
     }
     applyChatScroll(page.querySelector('.chat-scroll'))
     applyTodoScroll(page.querySelector('.todo-dock-list'))

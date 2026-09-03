@@ -11,7 +11,7 @@ import { applySessionLive, applyPendingFrame, ensureLive } from './pending.js'
 import { dropOutboxEcho, reconcileOutbox } from '../chat/outbox.js'
 import { refreshLiveSnapshot } from '../ui/views/session-view.js'
 import { render } from '../ui/views/render.js'
-import { triggerTaskDoneNotification } from '../utils/notify.js'
+import { triggerTaskDoneNotification, notifyIfCompleted } from '../utils/notify.js'
 
 export function parseLiveFrame(data) {
     if (typeof data !== 'string' || data === '') return null
@@ -382,7 +382,11 @@ export async function ensureHost() {
 export function handleMuxFrame(frame) {
     const pendingChanged = applyPendingFrame(frame)
     if (pendingChanged && state.view === 'chat') render()
+    const liveBefore = typeof frame?.sessionId === 'string' ? runtime.sessionLive.get(frame.sessionId) : undefined
     const statusChanged = applySessionLive(frame)
+    // Any session (mobile-open or PC-side) finishing triggers the chime +
+    // notification; notify.js dedupes the overlapping trigger paths.
+    notifyIfCompleted(frame, liveBefore?.running === true)
     if (frame?.type === 'host/session-status' && typeof frame.sessionId === 'string') {
       if (frame.sessionId === state.session?.sessionId) {
         const next = frame.running === true
@@ -391,7 +395,7 @@ export function handleMuxFrame(frame) {
           state.running = next
           if (wasRunning && !next) {
             void loadQuota(true)
-            triggerTaskDoneNotification(state.session?.title || '会话')
+            triggerTaskDoneNotification(state.session?.title || '会话', frame.sessionId)
           }
           if (state.view === 'chat') render()
         }

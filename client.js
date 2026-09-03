@@ -41,7 +41,7 @@ window.__ModuleLoader__.load({
       '.mp-trigger svg{display:block;flex:none}',
       '.mp-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center}',
       '.mp-mask{position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur)}',
-      '.mp-panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:14px;width:560px;max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);overflow:auto;box-sizing:border-box;padding:24px;border-radius:24px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}',
+      '.mp-panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:14px;width:600px;max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);overflow:auto;box-sizing:border-box;padding:24px;border-radius:24px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}',
       '.mp-header{display:flex;align-items:flex-start;gap:12px}',
       '.mp-heading{flex:1;min-width:0}',
       '.mp-title{margin:0;font-size:18px;font-weight:600;line-height:26px}',
@@ -62,10 +62,24 @@ window.__ModuleLoader__.load({
       '.mp-badge-disconnected{color:var(--dsw-alias-state-warn-primary);background:var(--dsw-alias-interactive-bg-hover)}',
       '.mp-badge-stopped{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover)}',
       '.mp-badge-public{color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-interactive-bg-hover)}',
+      '.mp-qr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;width:100%}',
+      '.mp-qr-card{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-base)}',
+      '.mp-qr-card-header{display:flex;flex-direction:column;align-items:center;gap:2px;width:100%;text-align:center}',
+      '.mp-qr-card-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}',
+      '.mp-qr-card-desc{font-size:12px;color:var(--dsw-alias-label-secondary)}',
+      '.mp-card-origin{display:inline-block;max-width:100%;padding:2px 8px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}',
+      '.mp-qr-card .mp-qr{width:160px;height:160px;display:block;border-radius:8px}',
+      '.mp-qr-card .mp-copy-link{width:100%;justify-content:center}',
       '.mp-qr-wrap{display:flex;align-items:center;justify-content:center;padding:12px;border-radius:12px;background:var(--dsw-alias-bg-base)}',
       '.mp-qr{display:block;width:184px;height:184px}',
       '.mp-expired{margin:0;color:var(--dsw-alias-state-error-primary);font-size:13px}',
       '.mp-expiry{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px}',
+      '.mp-pair-code-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;box-sizing:border-box;padding:10px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-base)}',
+      '.mp-pair-code-info{display:flex;flex-direction:column;gap:2px}',
+      '.mp-pair-code-title{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}',
+      '.mp-pair-code-desc{font-size:11px;color:var(--dsw-alias-label-tertiary)}',
+      '.mp-pair-code-display{display:flex;align-items:center;gap:8px;flex:none}',
+      '.mp-pair-code-val{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:18px;font-weight:700;letter-spacing:2px;color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-interactive-bg-hover);padding:2px 8px;border-radius:6px}',
       '.mp-hint{margin:0;color:var(--dsw-alias-label-secondary);font-size:13px}',
       '.mp-link{display:block;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-caption);font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:12px}',
       '.mp-pair-links{display:flex;flex-direction:column;gap:8px}',
@@ -271,66 +285,102 @@ window.__ModuleLoader__.load({
      */
     function MpPanel(props) {
       const {
-        issue, publicQr, status, stopped, expired, copied, busy, error,
-        onClose, onRefresh, onStop, onCopy, onPickPublic, onPickLocal, onRevoke,
+        issue, status, stopped, expired, copied, busy, error,
+        onClose, onRefresh, onStop, onCopy, onRevoke,
       } = props
       const badge = statusOf(status, stopped)
-      const localOrigin = (() => {
-        try { return new URL(issue.localUrl).origin } catch { return issue.localUrl }
-      })()
       const hasPublic = typeof issue.publicBaseUrl === 'string' && issue.publicBaseUrl !== ''
+      const hasLan = typeof issue.lanUrl === 'string' && issue.lanUrl !== ''
+      const publicOrigin = (() => {
+        try { return new URL(issue.url).origin } catch { return issue.publicBaseUrl || '' }
+      })()
+      const lanOrigin = (() => {
+        try { return new URL(issue.lanUrl || issue.localUrl).origin } catch { return issue.lanIp || '' }
+      })()
+
       return h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机远程' },
         h('div', { className: 'mp-header' },
           h('div', { className: 'mp-heading' },
             h('h2', { className: 'mp-title' }, ['手机远程']),
-            h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件'])),
+            h('p', { className: 'mp-subtitle' }, ['独立插件 · 支持文字与文件传输'])),
           h('button', { type: 'button', className: 'mp-close', 'aria-label': '关闭手机远程面板', onClick: onClose },
             h(IconClose16, { size: 14 }))),
 
         h('div', { className: 'mp-card' },
           h('div', { className: 'mp-card-header' },
-            h('span', { className: 'mp-card-title' }, ['设备配对']),
+            h('span', { className: 'mp-card-title' }, ['扫码配对手机']),
             h('span', { className: 'mp-badges' },
-              publicQr ? h('span', { className: 'mp-badge mp-badge-public' }, ['公网']) : null,
+              hasPublic && hasLan
+                ? h('span', { className: 'mp-badge mp-badge-public' }, ['双通道已就绪'])
+                : (hasPublic ? h('span', { className: 'mp-badge mp-badge-public' }, ['公网就绪']) : h('span', { className: 'mp-badge mp-badge-public' }, ['局域网就绪'])),
               h('span', { className: `mp-badge mp-badge-${badge.tone}` }, [badge.text]))),
-          h('div', { className: 'mp-qr-wrap' },
-            h('img', { className: 'mp-qr', src: publicQr ? issue.qr : issue.qrLocal, alt: '手机扫码配对二维码' })),
+
+          h('div', { className: 'mp-qr-grid' },
+            hasPublic ? h('div', { className: 'mp-qr-card' },
+              h('div', { className: 'mp-qr-card-header' },
+                h('span', { className: 'mp-qr-card-title' }, ['🌐 公网远程']),
+                h('span', { className: 'mp-qr-card-desc' }, ['适合外出 / 4G / 酒店']),
+                h('code', { className: 'mp-card-origin', title: publicOrigin }, [publicOrigin])),
+              h('img', { className: 'mp-qr', src: issue.qr, alt: '公网远程配对二维码' }),
+              h('button', {
+                type: 'button',
+                className: 'mp-copy-link',
+                disabled: copied === 'public',
+                onClick: () => onCopy('public', issue.url),
+              }, [
+                h(IconCopy16, { size: 14 }),
+                copied === 'public' ? '已复制' : '复制公网链接',
+              ])) : null,
+
+            hasLan ? h('div', { className: 'mp-qr-card' },
+              h('div', { className: 'mp-qr-card-header' },
+                h('span', { className: 'mp-qr-card-title' }, ['🟢 局域网极速']),
+                h('span', { className: 'mp-qr-card-desc' }, ['适合同 Wi-Fi / 热点']),
+                h('code', { className: 'mp-card-origin', title: lanOrigin }, [lanOrigin])),
+              h('img', { className: 'mp-qr', src: issue.qrLan || issue.qrLocal, alt: '局域网极速配对二维码' }),
+              h('button', {
+                type: 'button',
+                className: 'mp-copy-link',
+                disabled: copied === 'lan',
+                onClick: () => onCopy('lan', issue.lanUrl || issue.localUrl),
+              }, [
+                h(IconCopy16, { size: 14 }),
+                copied === 'lan' ? '已复制' : '复制局域网链接',
+              ])) : null),
+
+          issue.code && !expired && !stopped ? h('div', { className: 'mp-pair-code-banner' },
+            h('div', { className: 'mp-pair-code-info' },
+              h('span', { className: 'mp-pair-code-title' }, ['手机已打开页面？输入 6 位配对码']),
+              h('span', { className: 'mp-pair-code-desc' }, ['在手机设备配对页直接输入此数字，无需复制长链接'])),
+            h('div', { className: 'mp-pair-code-display' },
+              h('code', { className: 'mp-pair-code-val' }, [
+                issue.code.length === 6 ? `${issue.code.slice(0, 3)} ${issue.code.slice(3)}` : issue.code,
+              ]),
+              h('button', {
+                type: 'button',
+                className: 'mp-copy-link',
+                style: { padding: '0 10px', minHeight: '28px', fontSize: '12px' },
+                disabled: copied === 'code',
+                onClick: () => onCopy('code', issue.code),
+              }, [
+                h(IconCopy16, { size: 12 }),
+                copied === 'code' ? '已复制' : '复制',
+              ]))) : null,
+
           expired
             ? h('p', { className: 'mp-expired' }, ['二维码已过期，请刷新'])
-            : h('p', { className: 'mp-expiry' }, [`二维码有效至 ${formatClock(issue.expiresAt)}`])),
+            : h('p', { className: 'mp-expiry' }, [`二维码有效至 ${formatClock(issue.expiresAt)} · 一次性令牌`])),
 
-        h('p', { className: 'mp-hint' }, [publicQr && hasPublic ? '公网链接：设备无需与本机处于同一网络' : '无法扫码？可直接打开下方配对链接']),
         h('div', { className: 'mp-pair-links' },
           h('div', { className: 'mp-pair-link-row' },
             h('div', { className: 'mp-pair-link-text' },
-              h('span', { className: 'mp-pair-link-label' }, ['手机配对链接']),
-              h('code', { className: 'mp-link', title: issue.url }, [issue.url])),
-            h('button', { type: 'button', className: 'mp-copy-link', disabled: copied === 'phone', onClick: () => onCopy('phone', issue.url) },
-              h(IconCopy16, { size: 14 }),
-              [copied === 'phone' ? '已复制' : '复制手机链接'])),
-          h('div', { className: 'mp-pair-link-row' },
-            h('div', { className: 'mp-pair-link-text' },
-              h('span', { className: 'mp-pair-link-label' }, ['电脑配对链接']),
+              h('span', { className: 'mp-pair-link-label' }, ['电脑本机调试链接']),
               h('code', { className: 'mp-link', title: issue.localUrl }, [issue.localUrl])),
             h('button', { type: 'button', className: 'mp-copy-link', disabled: copied === 'desktop', onClick: () => onCopy('desktop', issue.localUrl) },
               h(IconCopy16, { size: 14 }),
               [copied === 'desktop' ? '已复制' : '复制电脑链接']))),
-        h('p', { className: 'mp-one-time-hint' }, ['两条链接共用同一枚一次性令牌；任意设备配对成功后，另一条链接立即失效。']),
-        stopped ? h('p', { className: 'mp-stopped-hint' }, ['已停止远程访问。点击"刷新二维码"重新开启。']) : null,
 
-        h('fieldset', { className: 'mp-addresses' },
-          h('legend', null, ['选择二维码指向的网络']),
-          h('label', { className: 'mp-address' },
-            h('input', { type: 'radio', name: 'mp-network', 'aria-label': '公网地址', checked: publicQr && hasPublic, disabled: !hasPublic, onChange: onPickPublic }),
-            h('span', null, ['公网地址']),
-            h('code', { className: 'mp-address-value' }, [hasPublic ? issue.publicBaseUrl : '未配置'])),
-          h('label', { className: 'mp-address' },
-            h('input', { type: 'radio', name: 'mp-network', 'aria-label': localOrigin, checked: !hasPublic || !publicQr, onChange: onPickLocal }),
-            h('span', null, ['本机']),
-            h('code', { className: 'mp-address-value' }, [localOrigin])),
-          h('p', { className: 'mp-address-hint' }, [hasPublic
-            ? '远程设备不在同一网络时请使用公网地址；本机地址仅限这台电脑的浏览器。'
-            : '未配置 publicBaseUrl 时只生成本机链接。云主机或反代请在插件配置里填写你自己的公网地址。'])),
+        stopped ? h('p', { className: 'mp-stopped-hint' }, ['已停止远程访问。点击"刷新二维码"重新开启。']) : null,
 
         h('div', { className: 'mp-actions' },
           h('button', { type: 'button', className: 'mp-action', disabled: busy || stopped, onClick: onStop },
@@ -370,7 +420,6 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
       const [issue, setIssue] = React.useState(null)
-      const [publicQr, setPublicQr] = React.useState(false)
       const [stopped, setStopped] = React.useState(false)
       const [expired, setExpired] = React.useState(false)
       const [status, setStatus] = React.useState({ deviceCount: 0, onlineCount: 0, devices: [], paired: false })
@@ -383,7 +432,6 @@ window.__ModuleLoader__.load({
         try {
           const data = await issuePair()
           setIssue(data)
-          setPublicQr(typeof data.publicBaseUrl === 'string' && data.publicBaseUrl !== '')
           setStopped(false)
           setExpired(Date.now() > data.expiresAt)
         } catch (err) {
@@ -453,13 +501,11 @@ window.__ModuleLoader__.load({
             h('div', { className: 'mp-mask', 'aria-hidden': 'true', onClick: closePanel }),
             issue
               ? h(MpPanel, {
-                  issue, publicQr, status, stopped, expired, copied, busy, error,
+                  issue, status, stopped, expired, copied, busy, error,
                   onClose: closePanel,
                   onRefresh: mint,
                   onStop: handleStop,
                   onCopy: handleCopy,
-                  onPickPublic: () => setPublicQr(true),
-                  onPickLocal: () => setPublicQr(false),
                   onRevoke: handleRevoke,
                 })
               : h('div', { className: 'mp-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': '手机远程' },

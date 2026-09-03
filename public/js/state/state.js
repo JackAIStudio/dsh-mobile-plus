@@ -35,6 +35,9 @@ export const runtime = {
   lightboxCleanup: null,
   deferredInstallPrompt: null,
   sessionsQuery: 0,
+  activeSheet: null,
+  sheetNode: null,
+  sheetPortalNode: null,
 }
 
 export const state = {

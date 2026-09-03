@@ -5,7 +5,7 @@ import { state, chat, runtime, LOCATION_KEY } from './state.js'
 import { openWorkspace, showWorkspaces } from '../ui/views/ws-view.js'
 import { openChat } from '../ui/views/chat-view.js'
 import { enterDir } from '../ui/views/dir-view.js'
-import { showSessionsFromChat, ownedSessionIds } from '../ui/views/session-view.js'
+import { showSessionsFromChat, showRecentSessionsFromChat, openRecentSessions, ownedSessionIds } from '../ui/views/session-view.js'
 import { render } from '../ui/views/render.js'
 
 export function decodeRouteSeg(part) {
@@ -15,21 +15,24 @@ export function decodeRouteSeg(part) {
 export function parseRoute(hash) {
     const source = hash === undefined ? window.location.hash : String(hash || '')
     const path = source.replace(/^#/, '').trim().replace(/^\/+|\/+$/g, '')
-    if (path === '') return { view: 'workspaces', empty: true }
+    if (path === '') return { view: state.listMode === 'flat' ? 'sessions' : 'workspaces', empty: true }
     const segs = path.split('/').map(decodeRouteSeg).filter(Boolean)
     if (segs.length === 1 && segs[0] === 'dir') return { view: 'dir' }
+    if (segs[0] === 'recent' || segs[0] === 'sessions') return { view: 'sessions' }
+    if (segs[0] === 'workspaces') return { view: 'workspaces' }
     if (segs[0] === 'ws' && segs[1]) {
       if (segs[2] === 's' && segs[3]) {
         return { view: 'chat', workspaceId: segs[1], sessionId: segs[3] }
       }
       if (segs.length === 2) return { view: 'sessions', workspaceId: segs[1] }
     }
-    return { view: 'workspaces' }
+    return { view: state.listMode === 'flat' ? 'sessions' : 'workspaces' }
   }
 
 export function formatRoute(route) {
     if (!route || route.view === 'workspaces') return '#/'
     if (route.view === 'dir') return '#/dir'
+    if (route.view === 'sessions' && !route.workspaceId) return '#/recent'
     if (route.view === 'chat' && route.workspaceId && route.sessionId) {
       return `#/ws/${encodeURIComponent(route.workspaceId)}/s/${encodeURIComponent(route.sessionId)}`
     }
@@ -43,6 +46,10 @@ export function persistRoute(route) {
       saved = { view: 'chat', workspaceId: route.workspaceId, sessionId: route.sessionId }
     } else if (route && (route.view === 'sessions' || route.view === 'chat') && route.workspaceId) {
       saved = { view: 'sessions', workspaceId: route.workspaceId }
+    } else if (route && route.view === 'sessions' && !route.workspaceId) {
+      saved = { view: 'sessions', workspaceId: '' }
+    } else if (route && route.view === 'workspaces') {
+      saved = { view: 'workspaces', workspaceId: '' }
     }
     try { localStorage.setItem(LOCATION_KEY, JSON.stringify(saved)) } catch { /* privacy mode */ }
   }
@@ -66,7 +73,7 @@ export function readPersistedRoute() {
 
 export function commitLocation(route, mode) {
     const clean = {
-      view: route && route.view ? route.view : 'workspaces',
+      view: route && route.view ? route.view : (state.listMode === 'flat' ? 'sessions' : 'workspaces'),
       ...(route && route.workspaceId ? { workspaceId: route.workspaceId } : {}),
       ...(route && route.sessionId ? { sessionId: route.sessionId } : {}),
     }
@@ -112,7 +119,17 @@ export async function applyRoute(route, opts = {}) {
     const locationMode = locationModeFor(opts)
     const still = () => gen === runtime.routeGen
 
-    if (!route || route.view === 'workspaces' || (route.view !== 'dir' && route.view !== 'sessions' && route.view !== 'chat')) {
+    if (!route || (route.view !== 'dir' && route.view !== 'sessions' && route.view !== 'chat' && route.view !== 'workspaces')) {
+      if (state.listMode === 'flat') {
+        if (state.view === 'chat') showRecentSessionsFromChat(locationMode)
+        else await openRecentSessions({ locationMode })
+      } else {
+        showWorkspaces(locationMode)
+      }
+      return
+    }
+
+    if (route.view === 'workspaces') {
       showWorkspaces(locationMode)
       return
     }
@@ -127,9 +144,27 @@ export async function applyRoute(route, opts = {}) {
       return
     }
 
+    if (route.view === 'sessions' && !route.workspaceId) {
+      if (state.view === 'chat') {
+        showRecentSessionsFromChat(locationMode)
+        return
+      }
+      if (state.view === 'sessions' && !state.workspace) {
+        if (locationMode !== 'none') commitLocation({ view: 'sessions' }, locationMode)
+        else persistRoute({ view: 'sessions' })
+        return
+      }
+      await openRecentSessions({ locationMode })
+      return
+    }
+
     const ws = (state.workspaces || []).find((item) => item.workspaceId === route.workspaceId)
     if (!ws) {
-      showWorkspaces('replace')
+      if (state.listMode === 'flat') {
+        showRecentSessionsFromChat(locationMode)
+      } else {
+        showWorkspaces('replace')
+      }
       return
     }
 

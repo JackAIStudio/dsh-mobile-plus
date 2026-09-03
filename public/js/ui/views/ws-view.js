@@ -5,10 +5,9 @@ import { state, chat, runtime } from '../../state/state.js'
 import { el, workspaceTitle, abbreviateHomePath } from '../../utils/dom.js'
 import { formatTime, getTodayDateString } from '../../utils/time.js'
 import { call, timedFetch } from '../../net/rpc.js'
-import { renderQuotaBar, quotaSheet } from '../../net/quota.js'
-import { commitLocation, navBack, persistRoute } from '../../state/route.js'
-import { headerIcon, themeToggle, reloadButton, headerActions, pwaButton, globalSettingsButton } from '../theme.js'
-import { settingsSheet, pwaSheet, powerSheet } from '../sheets.js'
+import { renderQuotaBar } from '../../net/quota.js'
+import { commitLocation, persistRoute } from '../../state/route.js'
+import { headerIcon, headerActions, globalSettingsButton } from '../theme.js'
 import { stopMuxObservation } from '../../net/mux.js'
 import { render } from './render.js'
 import { loadSessions, renderHeaderTabs } from './session-view.js'
@@ -54,6 +53,8 @@ export async function openWorkspace(ws, opts = {}) {
 export function showWorkspaces(locationMode = 'push') {
     runtime.chatQuery += 1
     stopMuxObservation()
+    state.listMode = 'workspace'
+    try { localStorage.setItem('dsh-mp-list-mode', 'workspace') } catch {}
     state.view = 'workspaces'
     state.workspace = null
     state.session = null
@@ -116,10 +117,6 @@ export function renderWorkspaces() {
         ]),
       ]),
     ])
-    if (state.sheet === 'quota') page.append(quotaSheet())
-    if (state.sheet === 'pwa') page.append(pwaSheet())
-    if (state.sheet === 'settings') page.append(settingsSheet())
-    if (state.sheet === 'power') page.append(powerSheet())
     if (state.createError) {
       page.append(el('p', { class: 'mobile-error' }, [state.createError]))
     }
@@ -213,7 +210,7 @@ export function renderWorkspaces() {
 
 export async function probeToday() {
     try {
-      const res = await timedFetch('/dsh-today/info', { credentials: 'same-origin' })
+      const res = await timedFetch('/dsh-today/info', { credentials: 'same-origin' }, 2000)
       state.todayAvailable = res.ok
     } catch {
       state.todayAvailable = false

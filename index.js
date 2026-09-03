@@ -3,6 +3,7 @@
  * Own routes under /mp. Does not patch @linxin666/dsh-remote-web-ui.
  */
 import { AuthManager } from './lib/auth.js'
+import { LanBridge } from './lib/lan-bridge.js'
 import { createPendingTracker } from './lib/events.js'
 import { createDispatcher } from './lib/rpc.js'
 import { setupRoutes } from './lib/routes.js'
@@ -17,6 +18,15 @@ export function apply(ctx, config = {}) {
   const auth = new AuthManager(config)
   const pendingTracker = createPendingTracker()
   const dispatch = createDispatcher(ctx, pendingTracker)
+
+  ctx.effect(() => {
+    const port = typeof ctx.webServer?.port === 'number' ? ctx.webServer.port : 3080
+    const bridge = new LanBridge(port, 3088)
+    void bridge.start().then((boundPort) => {
+      if (boundPort) auth.lanPort = boundPort
+    })
+    return () => bridge.stop()
+  }, 'dsh-mobile-plus: lan bridge')
 
   ctx.effect(() => {
     return setupRoutes(ctx, auth, pendingTracker, dispatch)

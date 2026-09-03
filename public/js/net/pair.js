@@ -6,8 +6,11 @@ import { call } from './rpc.js'
 export function parsePairInput(value) {
     const trimmed = (value || '').trim()
     if (trimmed === '') return undefined
+    const digitsOnly = trimmed.replace(/[\s-]+/g, '')
+    if (/^\d{6}$/.test(digitsOnly)) return digitsOnly
     try {
-      const url = new URL(trimmed, window.location.origin)
+      const base = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost'
+      const url = new URL(trimmed, base)
       const token = url.searchParams.get('pair')
       if (token) return token
     } catch {
@@ -25,9 +28,9 @@ export async function acceptPair(token) {
       body: JSON.stringify({ token }),
     })
     if (res.ok) return undefined
-    if (res.status === 404) return '配对链接无效或已过期。'
-    if (res.status === 409) return '配对链接已被使用。'
-    return '此设备无法使用该配对链接。'
+    if (res.status === 404) return '配对码或链接无效，或已过期。'
+    if (res.status === 409) return '配对码或链接已被使用。'
+    return '此设备无法完成配对。'
   }
 
 export async function pairStatus() {
