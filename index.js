@@ -9,7 +9,7 @@ import { createDispatcher } from './lib/rpc.js'
 import { setupRoutes } from './lib/routes.js'
 
 export const name = 'dsh-mobile-plus'
-export const inject = ['webServer', 'apiProxy', 'commands', 'agents']
+export const inject = ['webServer', 'commands', 'agents']
 
 export function apply(ctx, config = {}) {
   const enabled = config.enabled !== false
@@ -36,11 +36,13 @@ export function apply(ctx, config = {}) {
     const controller = new AbortController()
     void (async () => {
       try {
-        const frames = ctx.apiProxy.events.mux(
-          { rpcId: `mp-pending-${Date.now().toString(36)}`, payload: {} },
-          controller.signal,
-        )
-        for await (const frame of frames) pendingTracker.onFrame(frame)
+        if (ctx.apiProxy?.events?.mux) {
+          const frames = ctx.apiProxy.events.mux(
+            { rpcId: `mp-pending-${Date.now().toString(36)}`, payload: {} },
+            controller.signal,
+          )
+          for await (const frame of frames) pendingTracker.onFrame(frame)
+        }
       } catch {
         /* aborted or stream ended */
       }
