@@ -7,9 +7,10 @@ import { LanBridge } from './lib/lan-bridge.js'
 import { createPendingTracker } from './lib/events.js'
 import { createDispatcher } from './lib/rpc.js'
 import { setupRoutes } from './lib/routes.js'
+import { svc } from './lib/utils.js'
 
 export const name = 'dsh-mobile-plus'
-export const inject = ['webServer', 'commands', 'agents']
+export const inject = ['webServer', 'sessionController', 'workspaceController']
 
 export function apply(ctx, config = {}) {
   const enabled = config.enabled !== false
@@ -36,8 +37,10 @@ export function apply(ctx, config = {}) {
     const controller = new AbortController()
     void (async () => {
       try {
-        if (ctx.apiProxy?.events?.mux) {
-          const frames = ctx.apiProxy.events.mux(
+        let proxy;
+try { proxy = ctx.apiProxy } catch {}
+if (proxy?.events?.mux) {
+          const frames = proxy.events.mux(
             { rpcId: `mp-pending-${Date.now().toString(36)}`, payload: {} },
             controller.signal,
           )
