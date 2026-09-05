@@ -1,0 +1,154 @@
+/* ── Session Action Pills & Session Cards ────────────────────────────── */
+
+.mobile-action-pills {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+
+.mobile-action-pill {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--m-shadow);
+  transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease;
+  white-space: nowrap;
+}
+
+.mobile-action-pill:active {
+  transform: scale(0.98);
+  background: var(--m-bg-input);
+}
+
+.mobile-action-pill.is-today {
+  background: var(--m-accent-soft);
+  border-color: color-mix(in srgb, var(--m-accent) 35%, transparent);
+  color: var(--m-accent);
+}
+
+.mobile-action-pill svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* Session Card Container (Main click area + Right Quick Action) */
+.mobile-session-card {
+  display: flex;
+  align-items: center;
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 14px;
+  background: var(--m-bg-raised);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.mobile-session-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 8px 13px 14px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-session-card-main:active {
+  opacity: 0.75;
+}
+
+.mobile-session-card-action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-right: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--m-border);
+  background: var(--m-bg-input);
+  color: var(--m-text-secondary);
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.mobile-session-card-action:active {
+  transform: scale(0.92);
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+}
+
+.mobile-session-card-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Spinner */
+.mobile-action-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--m-border);
+  border-top-color: var(--m-accent);
+  border-radius: 50%;
+  animation: mobile-spin 0.7s linear infinite;
+}
+
+@keyframes mobile-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Workspace Picker Sheet Styles */
+.sheet-ws-list {
+  max-height: 48vh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: 8px 0;
+}
+
+.sheet-row-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 10px;
+  border: none;
+  border-bottom: 1px solid var(--m-border);
+  background: transparent;
+  text-align: left;
+  color: var(--m-text);
+  cursor: pointer;
+}
+
+.sheet-row-btn:active {
+  background: var(--m-bg-input);
+}
+
+.sheet-browse-btn {
+  border: 1px dashed var(--m-border);
+  border-radius: 12px;
+  margin-top: 6px;
+  background: var(--m-bg-input);
+}

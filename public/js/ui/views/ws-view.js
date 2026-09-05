@@ -23,7 +23,10 @@ export async function loadPresets() {
       const data = await call('agentPreset.list', {})
       const presets = (data.presets || []).filter((p) => !p.broken)
       state.presets = presets
-      state.presetId = (presets.find((p) => p.isDefault) || presets[0] || {}).id || ''
+      const defaultPreset = presets.find((p) => p.isDefault) || presets[0]
+      if (!state.presetId || !presets.some((p) => p.id === state.presetId)) {
+        state.presetId = defaultPreset?.id || ''
+      }
     } catch {
       state.presets = []
       state.presetId = ''
@@ -54,7 +57,6 @@ export function showWorkspaces(locationMode = 'push') {
     runtime.chatQuery += 1
     stopMuxObservation()
     state.listMode = 'workspace'
-    try { localStorage.setItem('dsh-mp-list-mode', 'workspace') } catch {}
     state.view = 'workspaces'
     state.workspace = null
     state.session = null

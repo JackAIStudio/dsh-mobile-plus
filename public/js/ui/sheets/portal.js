@@ -6,6 +6,7 @@ import { state, runtime } from '../../state/state.js'
 import { settingsSheet } from './settings-sheet.js'
 import { renderModelSheet } from './model-sheet.js'
 import { pwaSheet, powerSheet } from './system-sheets.js'
+import { renderWorkspacePickerSheet } from './workspace-sheet.js'
 import { quotaSheet } from '../../net/quota-sheet.js'
 
 export function getSheetPortal() {
@@ -55,6 +56,7 @@ export function syncSheetPortal(force = false) {
   else if (target === 'quota') node = quotaSheet()
   else if (target === 'pwa') node = pwaSheet()
   else if (target === 'power') node = powerSheet()
+  else if (target === 'workspace-pick') node = renderWorkspacePickerSheet()
 
   runtime.activeSheet = target
   runtime.sheetNode = node

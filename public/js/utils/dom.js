@@ -11,14 +11,19 @@ export function el(tag, attrs, kids) {
       if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v)
       else if (k === 'class') node.className = v
       else if (k === 'html') node.innerHTML = v
-      else if (v === true) node.setAttribute(k, '')
+      else if (v === true) {
+        node.setAttribute(k, '')
+        if (k in node) {
+          try { node[k] = true } catch {}
+        }
+      }
       else if (v !== false && v != null && k !== 'value') node.setAttribute(k, String(v))
     }
-    if ((tag === 'textarea' || tag === 'input' || tag === 'select') && attrs && 'value' in attrs) node.value = attrs.value
     for (const kid of kids || []) {
       if (kid == null || kid === false) continue
       node.append(kid.nodeType ? kid : document.createTextNode(String(kid)))
     }
+    if ((tag === 'textarea' || tag === 'input' || tag === 'select') && attrs && 'value' in attrs) node.value = attrs.value
     return node
   }
 

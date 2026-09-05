@@ -3,18 +3,17 @@
  */
 import { state, runtime } from '../../state/state.js'
 import { el, workspaceTitle } from '../../utils/dom.js'
-import { formatTime } from '../../utils/time.js'
 import { onListScroll } from '../../utils/scroll.js'
-import { call } from '../../net/rpc.js'
 import { sessionTitle } from '../../chat/fold.js'
 import { commitLocation, persistRoute } from '../../state/route.js'
-import { sessionStatusDot, decorateSession } from '../../net/pending.js'
 import { renderQuotaBar } from '../../net/quota.js'
 import { headerIcon, headerActions, globalSettingsButton } from '../theme.js'
 import { stopMuxObservation } from '../../net/mux.js'
 import { render } from './render.js'
-import { openChat } from './chat-view.js'
 import { showWorkspaces } from './ws-view.js'
+import { sessionRow } from './session-row.js'
+import { createSession, createSessionInWorkspace, createTodaySession, renderPresetSelector } from './session-create.js'
+import { openWorkspacePickerSheet } from '../sheets.js'
 import {
   findWorkspaceForSession,
   switchListMode,
@@ -34,6 +33,9 @@ export {
   startListPoll,
   stopListPoll,
   refreshLiveSnapshot,
+  createSession,
+  createSessionInWorkspace,
+  createTodaySession,
 }
 
 export async function loadMoreSessions() {
@@ -63,37 +65,6 @@ export async function loadMoreSessions() {
       state.loadingMore = false
       if (state.view === 'sessions') render()
     }
-  }
-}
-
-export async function createSession() {
-  if (state.creating) return
-  if (!state.workspace) {
-    state.createError = '没有选中工作区。'
-    if (state.view === 'sessions') render()
-    return
-  }
-  state.creating = true
-  state.createError = ''
-  render()
-  try {
-    const created = await call('session.create', {
-      workspaceId: state.workspace.workspaceId,
-      ...(state.presetId ? { agentPreset: state.presetId } : {}),
-    })
-    if (!created || !created.sessionId) {
-      throw new Error('创建失败：宿主没有返回会话 ID。')
-    }
-    const ids = Array.isArray(state.workspace.sessionIds) ? state.workspace.sessionIds : []
-    if (!ids.includes(created.sessionId)) {
-      state.workspace.sessionIds = [created.sessionId].concat(ids)
-    }
-    await openChat({ sessionId: created.sessionId, title: '新会话' })
-  } catch (err) {
-    state.createError = String(err.message || err)
-  } finally {
-    state.creating = false
-    if (state.view === 'sessions') render()
   }
 }
 
@@ -155,6 +126,18 @@ export function getSortedSessions() {
   return items
 }
 
+export function visibleSessions() {
+  const q = (state.sessionQuery || '').trim().toLowerCase()
+  const sorted = getSortedSessions()
+  if (!q) return sorted
+  return sorted.filter((s) => {
+    const title = (s.blank ? '新会话' : sessionTitle(s)).toLowerCase()
+    const ws = findWorkspaceForSession(s.sessionId) || state.workspace
+    const wsName = ws ? workspaceTitle(ws).toLowerCase() : ''
+    return title.includes(q) || wsName.includes(q)
+  })
+}
+
 export function renderHeaderTabs() {
   return el('div', { class: 'mobile-header-left' }, [
     el('div', { class: 'mobile-tabs' }, [
@@ -191,7 +174,18 @@ export function renderSessions() {
   const page = el('div', { class: 'mobile' }, [
     el('header', { class: 'mobile-header' }, [
       isSingleWs
-        ? el('button', { type: 'button', class: 'mobile-back', 'aria-label': '返回', onclick: () => showWorkspaces('push') }, ['‹'])
+        ? el('button', {
+            type: 'button',
+            class: 'mobile-back',
+            'aria-label': '返回',
+            onclick: () => {
+              if (state.listMode === 'flat') {
+                void openRecentSessions({ locationMode: 'push' })
+              } else {
+                showWorkspaces('push')
+              }
+            },
+          }, ['‹'])
         : null,
       !isSingleWs
         ? renderHeaderTabs()
@@ -209,61 +203,82 @@ export function renderSessions() {
   }
 
   if (isSingleWs) {
-    const presetRow = state.presets.length > 0
-      ? el('label', { class: 'mobile-preset' }, [
-          el('span', { class: 'mobile-presetLabel' }, ['Agent 模式']),
-          el('select', {
-            class: 'mobile-presetSelect',
-            value: state.presetId,
-            onchange: (ev) => { state.presetId = ev.target.value; render() },
-          }, state.presets.map((p) => el('option', { value: p.id }, [p.name || p.id, p.isDefault ? '（默认）' : '']))),
-        ])
-      : null
-    const presetEntry = state.presets.find((p) => p.id === state.presetId)
+    const presetKids = renderPresetSelector(render)
     page.append(el('div', { class: 'mobile-create mobile-pad' }, [
-      presetRow,
-      presetEntry?.description ? el('p', { class: 'mobile-presetDescription' }, [presetEntry.description]) : null,
+      ...presetKids,
       el('button', { type: 'button', class: 'mobile-new', disabled: state.creating, onclick: () => void createSession() }, [state.creating ? '创建中…' : '+ 新建会话']),
     ]))
     if (state.createError) page.append(el('p', { class: 'mobile-error mobile-pad' }, [state.createError]))
   }
 
-  const list = el('ul', { class: 'mobile-list', onscroll: onListScroll })
-  const sorted = getSortedSessions()
-  for (const raw of sorted) {
-    const s = decorateSession(raw)
-    const ws = findWorkspaceForSession(s.sessionId) || state.workspace
-    const wsName = ws ? workspaceTitle(ws) : ''
-    list.append(el('li', {}, [
+  let search = null
+  let quickActions = null
+  if (!isSingleWs) {
+    search = el('input', {
+      class: 'mobile-wsSearch',
+      type: 'search',
+      placeholder: '搜索会话或所属工作区…',
+      value: state.sessionQuery || '',
+      autocomplete: 'off',
+      autocapitalize: 'off',
+      autocorrect: 'off',
+      spellcheck: 'false',
+      enterkeyhint: 'search',
+      'aria-label': '搜索会话',
+      oninput: (ev) => {
+        state.sessionQuery = ev.target.value
+        refreshSessionList()
+      },
+    })
+
+    quickActions = el('div', { class: 'mobile-action-pills' }, [
       el('button', {
         type: 'button',
-        class: 'mobile-row',
-        onclick: () => {
-          if (ws && !state.workspace) state.workspace = ws
-          void openChat(s)
-        },
+        class: 'mobile-action-pill is-today',
+        disabled: state.creating,
+        onclick: () => void createTodaySession(),
       }, [
-        el('span', { class: 'mobile-rowMain' }, [
-          el('span', { class: 'mobile-rowHeader' }, [
-            el('span', { class: 'mobile-rowTitle' }, [s.blank ? '新会话' : sessionTitle(s)]),
-            wsName && !isSingleWs ? el('span', { class: 'mobile-rowWsBadge' }, [wsName]) : null,
-          ]),
-          sessionStatusDot(s),
-          el('span', { class: 'mobile-rowMeta' }, [formatTime(s.updatedAt)]),
-        ]),
-        el('span', { class: 'mobile-chevron' }, ['›']),
+        headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="12" y1="14" x2="12" y2="18"/><line x1="10" y1="16" x2="14" y2="16"/></svg>'),
+        el('span', {}, [state.creating && state.creatingWorkspaceId === 'today' ? '创建中…' : '今日新会话']),
       ]),
-    ]))
+      el('button', {
+        type: 'button',
+        class: 'mobile-action-pill',
+        disabled: state.creating,
+        onclick: () => openWorkspacePickerSheet(),
+      }, [
+        headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>'),
+        el('span', {}, ['选工作区新建…']),
+      ]),
+    ])
+    if (state.createError) page.append(el('p', { class: 'mobile-error mobile-pad' }, [state.createError]))
   }
-  page.append(list)
 
-  if (state.hasMoreSessions) {
+  const list = el('ul', { class: 'mobile-list', onscroll: onListScroll })
+  const empty = el('p', { class: 'mobile-muted mobile-wsSearchEmpty', hidden: true }, [''])
+
+  const refreshSessionList = () => {
+    const q = (state.sessionQuery || '').trim()
+    const visible = visibleSessions()
+    list.replaceChildren(...visible.map((s) => sessionRow(s, isSingleWs)))
+    if (visible.length === 0 && !state.loading) {
+      empty.textContent = q ? `没有匹配「${q}」的会话` : (isSingleWs ? '该工作区还没有会话，点上方按钮新建一个' : '暂无最近会话')
+      empty.hidden = false
+    } else {
+      empty.hidden = true
+    }
+  }
+
+  refreshSessionList()
+
+  if (search) page.append(search)
+  if (quickActions) page.append(quickActions)
+  page.append(list, empty)
+
+  if (state.hasMoreSessions && !state.sessionQuery.trim()) {
     page.append(el('div', { class: 'mobile-pad' }, [
       el('button', { type: 'button', class: 'mobile-button mobile-block', disabled: state.loadingMore, onclick: () => void loadMoreSessions() }, [state.loadingMore ? '加载中…' : '加载更多会话']),
     ]))
-  }
-  if (!state.hasMoreSessions && state.sessions.length === 0 && !state.loading) {
-    page.append(el('div', { class: 'mobile-empty' }, [el('p', { class: 'mobile-muted' }, [isSingleWs ? '该工作区还没有会话，点上方按钮新建一个' : '暂无最近会话'])]))
   }
   return page
 }

@@ -202,7 +202,8 @@ export async function applyRoute(route, opts = {}) {
 
 export async function restoreRoute() {
     const parsed = parseRoute(window.location.hash)
-    const route = parsed.empty ? (readPersistedRoute() || { view: 'workspaces' }) : parsed
+    const fallbackView = state.listMode === 'flat' ? 'sessions' : 'workspaces'
+    const route = parsed.empty ? (readPersistedRoute() || { view: fallbackView }) : parsed
     await applyRoute(route, { replace: true })
     // Refresh replaces this history entry; parents on the stack may not be
     // ours. Zero depth so the in-app back button cannot history.back() off /mp/.
