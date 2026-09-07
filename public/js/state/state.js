@@ -101,6 +101,7 @@ export const quota = {
   status: 'idle',
   deepseek: null,
   grok: null,
+  gemini: null,
   lastFetchAt: 0,
   inFlight: null,
 }

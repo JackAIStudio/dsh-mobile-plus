@@ -10,7 +10,7 @@ import { setupRoutes } from './lib/routes.js'
 import { svc } from './lib/utils.js'
 
 export const name = 'dsh-mobile-plus'
-export const inject = ['webServer', 'apiProxy', 'commands', 'agents']
+export const inject = ['webServer', 'commands', 'agents']
 
 export function apply(ctx, config = {}) {
   const enabled = config.enabled !== false
@@ -37,9 +37,8 @@ export function apply(ctx, config = {}) {
     const controller = new AbortController()
     void (async () => {
       try {
-        let proxy;
-try { proxy = ctx.apiProxy } catch {}
-if (proxy?.events?.mux) {
+        const proxy = svc(ctx, 'apiProxy')
+        if (proxy?.events?.mux) {
           const frames = proxy.events.mux(
             { rpcId: `mp-pending-${Date.now().toString(36)}`, payload: {} },
             controller.signal,

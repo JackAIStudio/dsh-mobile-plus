@@ -15,7 +15,7 @@
   - 新增样式必须放入对应的 CSS 子模块（如 `chat.css`、`composer.css`、`sheets.css` 等），或新建模块并在 `public/css/app.css` 中 `@import` 引入。
 - **前端逻辑 (`public/js/`)**：
   - `state/`：全局状态（`state.js`）、路由解析与页面跳转（`route.js`）。
-  - `net/`：`/mp/api` RPC（`rpc.js`）、SSE 长连接 Mux（`mux.js`）、DeepSeek/Grok 额度（`quota.js`）、待处理与状态灯（`pending.js`）。
+  - `net/`：`/mp/api` RPC（`rpc.js`）、SSE 长连接 Mux（`mux.js`）、DeepSeek/Grok/Gemini 额度（`quota.js`, `quota-gemini.js`）、待处理与状态灯（`pending.js`）。
   - `chat/`：输入框 Composer（`composer.js`）、消息折叠 Fold（`fold.js`）、出件箱 Outbox（`outbox.js`）、附件上传 Upload（`upload.js`）、审批流 Approvals（`approvals.js`）、Slash 菜单（`slash.js`）。
   - `ui/`：Markdown 解析器（`markdown.js`）、Todo 任务规划面板（`todo.js`）、图片手势缩放 Lightbox（`lightbox.js`）、抽屉弹窗 Sheets（`sheets.js`）、各主页面视图（`ui/views/`）。
   - `utils/`：纯工具函数（`dom.js`、`time.js`、`storage.js`、`scroll.js`、`notify.js`）。

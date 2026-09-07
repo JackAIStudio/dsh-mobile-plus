@@ -50,7 +50,7 @@ dsh plugin --profile web add github:JackAIStudio/dsh-mobile-plus
 - `setup` / `pair/issue` / `pair/stop` / `pair/revoke` 仅 loopback。
 - 设备 cookie 和界面上的设备 id 分开；未配对的公网请求拿不到设备列表。
 - 公网请走 HTTPS。不要把未加固的 `dsh web` 端口直接暴露到互联网。
-- 额度接口只在宿主 loopback 上读 DeepSeek / Grok 插件，密钥不进手机。
+- 额度接口只在宿主 loopback 上读 DeepSeek / Grok / Gemini 插件，密钥不进手机。
 
 ## 许可证
 

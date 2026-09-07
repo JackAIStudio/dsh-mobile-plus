@@ -17,6 +17,21 @@ export async function createSessionInWorkspace(ws) {
   state.createError = ''
   render()
   try {
+    try {
+      const page = await call('session.list', { workspaceId: ws.workspaceId })
+      const reusable = (page?.items || []).find((s) => s.blank && !s.running && (!state.presetId || !s.agentPreset || s.agentPreset === state.presetId))
+      if (reusable) {
+        const ids = Array.isArray(ws.sessionIds) ? ws.sessionIds : []
+        if (!ids.includes(reusable.sessionId)) {
+          ws.sessionIds = [reusable.sessionId].concat(ids)
+        }
+        await openChat({ ...reusable, title: '新会话', blank: true, cwd: ws.path })
+        return
+      }
+    } catch {
+      // 容错：查询已有空白会话失败时继续走常规创建流程
+    }
+
     const created = await call('session.create', {
       workspaceId: ws.workspaceId,
       ...(state.presetId ? { agentPreset: state.presetId } : {}),
@@ -28,7 +43,7 @@ export async function createSessionInWorkspace(ws) {
     if (!ids.includes(created.sessionId)) {
       ws.sessionIds = [created.sessionId].concat(ids)
     }
-    await openChat({ sessionId: created.sessionId, title: '新会话' })
+    await openChat({ sessionId: created.sessionId, title: '新会话', blank: true, cwd: ws.path })
   } catch (err) {
     state.createError = String(err.message || err)
   } finally {

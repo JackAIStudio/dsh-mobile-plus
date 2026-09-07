@@ -1,31 +1,18 @@
 /**
- * Quota and balance tracking for DeepSeek and Grok.
+ * Quota and balance tracking for DeepSeek, Grok, and Gemini.
  */
 import { state, quota, runtime, QUOTA_DEBOUNCE_MS } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { headerIcon } from '../ui/theme.js'
-import { formatMoney } from '../utils/time.js'
+import { formatMoney, formatQuotaClock, formatQuotaStamp } from '../utils/time.js'
+import { GEMINI_ICON, geminiView } from './quota-gemini.js'
 import { call } from './rpc.js'
+
+export { formatQuotaClock, formatQuotaStamp } from '../utils/time.js'
+export { GEMINI_ICON, geminiView } from './quota-gemini.js'
 
 const WHALE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15c2.5 0 4-2 6-2s3.5 2 6 2 4-2 6-2"/><path d="M12 3c-4.5 0-8 3.5-8 8 0 2 .5 3.5 1.5 5"/><path d="M20 11c0-4.5-3.5-8-8-8"/></svg>'
 const GROK_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>'
-
-export function formatQuotaClock(value) {
-  const ms = typeof value === 'number' ? value : Date.parse(value)
-  if (!Number.isFinite(ms)) return ''
-  try {
-    return new Date(ms).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-  } catch {
-    return ''
-  }
-}
-
-export function formatQuotaStamp(iso) {
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return iso
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${at.getFullYear()}年${at.getMonth() + 1}月${at.getDate()}日 ${pad(at.getHours())}:${pad(at.getMinutes())}`
-}
 
 export function pickPrimaryBalance(balances) {
   if (!Array.isArray(balances) || balances.length === 0) return null
@@ -116,8 +103,10 @@ export function quotaSummary() {
   const parts = []
   const ds = deepseekView()
   const gk = grokView()
+  const gm = geminiView()
   if (ds) parts.push(`DeepSeek ${ds.amount}`)
   if (gk) parts.push(`Grok ${gk.amount}`)
+  if (gm) parts.push(`Gemini ${gm.amount}`)
   return parts.length ? parts.join(' · ') : '点击查询本机额度'
 }
 
@@ -155,6 +144,7 @@ export function loadQuota(force) {
     quota.lastFetchAt = Date.now()
     quota.deepseek = value && value.deepseek ? value.deepseek : null
     quota.grok = value && value.grok ? value.grok : null
+    quota.gemini = value && value.gemini ? value.gemini : null
     quota.status = 'ready'
     renderQuotaIfVisible()
   }, () => {
@@ -182,14 +172,19 @@ export function closeQuotaSheet() {
 export function renderQuotaBar() {
   const ds = deepseekView()
   const gk = grokView()
-  if (!ds && !gk) return null
+  const gm = geminiView()
+  if (!ds && !gk && !gm) return null
 
   const pinned = state.pinnedQuota || 'auto'
   let activeView = null
   let displayIcon = WHALE_ICON
   let label = '额度'
 
-  if (pinned === 'grok' && gk && gk.amount && gk.amount !== '查不到') {
+  if (pinned === 'gemini' && gm && gm.amount && gm.amount !== '查不到') {
+    activeView = gm
+    displayIcon = GEMINI_ICON
+    label = gm.capsuleLabel || gm.amount
+  } else if (pinned === 'grok' && gk && gk.amount && gk.amount !== '查不到') {
     activeView = gk
     displayIcon = GROK_ICON
     label = gk.amount.includes('已使用') ? gk.amount.replace('已使用', '').trim() : gk.amount
@@ -206,15 +201,19 @@ export function renderQuotaBar() {
       activeView = gk
       displayIcon = GROK_ICON
       label = gk.amount.includes('已使用') ? gk.amount.replace('已使用', '').trim() : gk.amount
+    } else if (gm && gm.amount && gm.amount !== '查不到') {
+      activeView = gm
+      displayIcon = GEMINI_ICON
+      label = gm.capsuleLabel || gm.amount
     } else {
       label = '额度'
       displayIcon = WHALE_ICON
     }
   }
 
-  const hasAlert = ds?.kind === 'alert' || ds?.kind === 'error' || gk?.kind === 'alert' || gk?.kind === 'error'
-  const hasWarn = ds?.kind === 'warn' || gk?.kind === 'warn'
-  const isLoading = ds?.loading || gk?.loading
+  const hasAlert = ds?.kind === 'alert' || ds?.kind === 'error' || gk?.kind === 'alert' || gk?.kind === 'error' || gm?.kind === 'alert' || gm?.kind === 'error'
+  const hasWarn = ds?.kind === 'warn' || gk?.kind === 'warn' || gm?.kind === 'warn'
+  const isLoading = ds?.loading || gk?.loading || gm?.loading
 
   return el('button', {
     type: 'button',

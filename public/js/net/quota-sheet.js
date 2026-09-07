@@ -8,6 +8,7 @@ import { closeSheet, syncSheetPortal } from '../ui/sheets/portal.js'
 import {
   deepseekView,
   grokView,
+  geminiView,
   grokWindowLabel,
   formatQuotaClock,
   formatQuotaStamp,
@@ -80,6 +81,27 @@ export function quotaSheet() {
         gk.usage && gk.usage.fetchedAt ? el('p', { class: 'quota-hint' }, [`更新于 ${formatQuotaClock(gk.usage.fetchedAt)}`]) : null,
         gk.error ? el('p', { class: 'quota-error' }, [gk.error]) : null,
       ])
+  const gm = geminiView()
+  const gmBody = !gm
+    ? el('div', { class: 'quota-section' }, [
+        el('div', { class: 'quota-section-head' }, [
+          el('span', { class: 'quota-section-title' }, ['Gemini']),
+        ]),
+        el('p', { class: 'quota-hint' }, ['未登录 Gemini，或本机暂不可查。']),
+      ])
+    : el('div', { class: 'quota-section' }, [
+        el('div', { class: 'quota-section-head' }, [
+          el('span', { class: 'quota-section-title' }, ['Gemini 剩余额度']),
+          pinQuotaButton('gemini', 'Gemini 额度'),
+        ]),
+        el('p', { class: `quota-hero${gm.kind === 'warn' ? ' is-warn' : gm.kind === 'alert' || gm.kind === 'error' ? ' is-alert' : ''}` }, [gm.amount]),
+        gm.geminiLine ? el('p', { class: 'quota-meta' }, [gm.geminiLine]) : null,
+        gm.thirdPartyLine ? el('p', { class: 'quota-meta' }, [gm.thirdPartyLine]) : null,
+        gm.resetLine ? el('p', { class: 'quota-hint' }, [gm.resetLine]) : null,
+        gm.accountId ? el('p', { class: 'quota-hint' }, [`账号 ${gm.accountId}`]) : null,
+        gm.fetchedAt ? el('p', { class: 'quota-hint' }, [`更新于 ${formatQuotaClock(gm.fetchedAt)}`]) : null,
+        gm.error ? el('p', { class: 'quota-error' }, [gm.error]) : null,
+      ])
   return el('div', { class: 'sheet-backdrop', onclick: () => closeSheet() }, [
     el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '账户额度', onclick: (ev) => { ev.stopPropagation() } }, [
       el('div', { class: 'sheet-handle' }),
@@ -93,7 +115,7 @@ export function quotaSheet() {
         }, [quota.status === 'loading' ? '刷新中…' : '刷新']),
       ]),
       el('p', { class: 'sheet-hint', style: 'padding: 0 16px 8px; margin: 0;' }, ['提示：点击卡片右上角「固定到顶栏」，可自选将该账户余额显示在顶部胶囊。']),
-      el('div', { class: 'sheet-body' }, [dsBody, gkBody]),
+      el('div', { class: 'sheet-body' }, [dsBody, gkBody, gmBody]),
     ]),
   ])
 }

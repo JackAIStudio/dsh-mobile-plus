@@ -38,3 +38,21 @@ export function formatBytes(n) {
     const mb = n / (1024 * 1024)
     return `${mb >= 10 ? mb.toFixed(0) : mb.toFixed(1)} MB`
   }
+
+export function formatQuotaClock(value) {
+  const ms = typeof value === 'number' ? value : Date.parse(value)
+  if (!Number.isFinite(ms)) return ''
+  try {
+    return new Date(ms).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  } catch {
+    return ''
+  }
+}
+
+export function formatQuotaStamp(iso) {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return iso
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${at.getFullYear()}年${at.getMonth() + 1}月${at.getDate()}日 ${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
+

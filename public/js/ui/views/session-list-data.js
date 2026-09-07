@@ -47,8 +47,16 @@ export function ownedSessionIds(workspace) {
   return new Set((workspace && workspace.sessionIds) || [])
 }
 
+export function isSessionVisible(s) {
+  if (!s || typeof s !== 'object') return false
+  if (s.origin === 'subagent') return false
+  if (s.blank && !s.running && s.sessionId !== state.session?.sessionId) return false
+  return true
+}
+
 export function applySessionPage(items, owned, listedAt = 0, noFilter = false) {
-  const rows = noFilter ? (items || []) : (items || []).filter((s) => owned.has(s.sessionId))
+  const filtered = (items || []).filter(isSessionVisible)
+  const rows = noFilter ? filtered : filtered.filter((s) => owned.has(s.sessionId))
   for (const s of rows) hydrateSessionLive(s, listedAt)
   return rows
 }
@@ -127,7 +135,7 @@ export function sessionStatusKey(items) {
 export function mergeSessionsFromSnapshot(items) {
   const byId = new Map((items || []).map((s) => [s.sessionId, s]))
   let changed = false
-  const next = state.sessions.map((row) => {
+  const next = state.sessions.filter(isSessionVisible).map((row) => {
     const fresh = byId.get(row.sessionId)
     if (!fresh) return row
     byId.delete(row.sessionId)
@@ -135,13 +143,16 @@ export function mergeSessionsFromSnapshot(items) {
     changed = true
     return { ...row, ...fresh }
   })
-  const newcomers = [...byId.values()]
+  const newcomers = [...byId.values()].filter(isSessionVisible)
   if (newcomers.length > 0) {
     changed = true
     next.push(...newcomers)
     next.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
   }
-  if (changed) state.sessions = next
+  if (changed || next.length !== state.sessions.length) {
+    state.sessions = next
+    return true
+  }
   return changed
 }
 

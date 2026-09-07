@@ -23,6 +23,7 @@ import {
   startListPoll,
   stopListPoll,
   refreshLiveSnapshot,
+  isSessionVisible,
 } from './session-list-data.js'
 
 export {
@@ -116,7 +117,7 @@ export async function openRecentSessions(opts = {}) {
 }
 
 export function getSortedSessions() {
-  const items = state.sessions.slice()
+  const items = state.sessions.filter(isSessionVisible)
   if (state.sortMode === 'recent') {
     items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
   } else if (state.sortMode === 'manual' && state.workspace) {

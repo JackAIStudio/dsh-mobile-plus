@@ -116,6 +116,11 @@ export async function send() {
     if (isCommand) {
       setDraft('')
       state.sending = true
+      if (state.session) {
+        state.session.blank = false
+        const inList = (state.sessions || []).find((s) => s.sessionId === state.session.sessionId)
+        if (inList) inList.blank = false
+      }
       render()
       focusComposer()
       try {
@@ -176,6 +181,11 @@ export async function send() {
     }
     chat.outbox.push(item)
     state.sending = false
+    if (state.session) {
+      state.session.blank = false
+      const inList = (state.sessions || []).find((s) => s.sessionId === state.session.sessionId)
+      if (inList) inList.blank = false
+    }
     render()
     focusComposer()
     await deliverOutbox(item)
