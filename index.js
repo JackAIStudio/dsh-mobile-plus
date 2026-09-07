@@ -10,7 +10,7 @@ import { setupRoutes } from './lib/routes.js'
 import { svc } from './lib/utils.js'
 
 export const name = 'dsh-mobile-plus'
-export const inject = ['webServer', 'sessionController', 'workspaceController']
+export const inject = ['webServer', 'apiProxy', 'commands', 'agents']
 
 export function apply(ctx, config = {}) {
   const enabled = config.enabled !== false
