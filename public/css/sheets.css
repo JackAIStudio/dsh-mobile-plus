@@ -11,6 +11,12 @@
   animation: sheet-fade 0.18s ease;
 }
 
+.sheet-backdrop.no-anim,
+.sheet-backdrop.no-anim .sheet,
+.sheet.no-anim {
+  animation: none !important;
+}
+
 @keyframes sheet-fade {
   from {
     opacity: 0;

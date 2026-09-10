@@ -80,7 +80,13 @@ export function reconcileOutbox(sessionId) {
 
 export async function deliverOutbox(item) {
     try {
-      await call('session.prompt', { sessionId: item.sessionId, mode: 'queue', content: item.content })
+      await call('session.prompt', {
+        requestId: item.id,
+        sessionId: item.sessionId,
+        mode: 'queue',
+        content: item.content,
+        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      })
       if (item.localStatus === 'sending') item.localStatus = 'sent'
       if (state.session?.sessionId === item.sessionId) state.running = true
       nudgeMux(item.sessionId)

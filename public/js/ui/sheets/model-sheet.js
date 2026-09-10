@@ -5,6 +5,12 @@ import { state, chat } from '../../state/state.js'
 import { el } from '../../utils/dom.js'
 import { call } from '../../net/rpc.js'
 import { closeSheet, switchSheet, syncSheetPortal } from './portal.js'
+import {
+  catalogFailures,
+  catalogGroups,
+  rememberCatalog,
+  selectedModel,
+} from './model-catalog.js'
 
 export function openModelSheet() {
   if (state.sheet === 'settings') state.sheetReturn = 'settings'
@@ -12,8 +18,10 @@ export function openModelSheet() {
   chat.modelSheet = { status: 'loading' }
   chat.modelError = undefined
   syncSheetPortal()
-  void call('session.models', { sessionId: state.session.sessionId }).then(
+  const sid = state.session?.sessionId
+  void call('session.models', { sessionId: sid }).then(
     (data) => {
+      rememberCatalog(data)
       chat.modelSheet = { status: 'ready', data }
       if (state.sheet === 'model') syncSheetPortal(true)
     },
@@ -47,6 +55,19 @@ export function renderModelSheet() {
     ]),
   ])
 
+  try {
+    return renderModelSheetBody(sheet, close)
+  } catch (err) {
+    return sheet([
+      el('div', { class: 'sheet-status sheet-status-error' }, [
+        el('span', {}, [String(err.message || err)]),
+        el('button', { type: 'button', class: 'chat-load-older', onclick: () => void openModelSheet() }, ['重试']),
+      ]),
+    ])
+  }
+}
+
+function renderModelSheetBody(sheet, close) {
   const ms = chat.modelSheet
   if (ms.status === 'loading') {
     return sheet([el('div', { class: 'sheet-status' }, ['正在加载模型目录…'])])
@@ -61,18 +82,22 @@ export function renderModelSheet() {
   }
 
   const { data } = ms
-  const selected = chat.currentModel ?? data.current
-  const choices = (data.groups || []).flatMap((group) => group.models.map((model) => ({ group, model })))
-  const currentChoice = choices.find((c) => c.group.id === selected.provider && c.model.id === selected.model)
+  const selected = selectedModel(data)
+  const groups = catalogGroups(data)
+  const choices = groups.flatMap((group) => (Array.isArray(group?.models) ? group.models : []).map((model) => ({ group, model })))
+  const currentChoice = selected
+    ? choices.find((c) => c.group.id === selected.provider && c.model.id === selected.model)
+    : undefined
   const reasoning = currentChoice?.model.reasoning
-  const effectiveEffort = selected.reasoningEffort ?? reasoning?.defaultEffort
+  const effectiveEffort = selected?.reasoningEffort ?? reasoning?.defaultEffort
+  const effortList = Array.isArray(reasoning?.efforts) ? reasoning.efforts : []
   const effortChoices = reasoning === undefined
     ? []
     : [
         ...(reasoning.defaultEffort === undefined
           ? [{ key: 'provider-default', effort: undefined, label: '跟随模型默认' }]
           : []),
-        ...reasoning.efforts.map((effort) => ({
+        ...effortList.map((effort) => ({
           key: `effort:${effort.id}`,
           effort: effort.id,
           label: effort.name,
@@ -91,7 +116,7 @@ export function renderModelSheet() {
   ])
 
   const apply = async (selection) => {
-    if (chat.modelBusy) return
+    if (chat.modelBusy || !selection?.provider || !selection?.model) return
     chat.modelBusy = true
     chat.modelError = undefined
     syncSheetPortal(true)
@@ -114,17 +139,17 @@ export function renderModelSheet() {
 
   const kids = []
   if (chat.modelError !== undefined) kids.push(el('p', { class: 'sheet-error' }, [chat.modelError]))
-  for (const failure of data.failures || []) {
+  for (const failure of catalogFailures(data)) {
     kids.push(el('p', { class: 'sheet-error' }, [`${failure.name}: ${failure.message}`]))
   }
-  if ((data.groups || []).length === 0 && choices.length === 0) {
+  if (groups.length === 0 && choices.length === 0) {
     kids.push(el('div', { class: 'sheet-status' }, ['没有可用的模型']))
   }
-  for (const group of data.groups || []) {
-    const rows = group.models.map((model) => {
-      const isSelected = selected.provider === group.id && selected.model === model.id
+  for (const group of groups) {
+    const rows = (Array.isArray(group.models) ? group.models : []).map((model) => {
+      const isSelected = Boolean(selected) && selected.provider === group.id && selected.model === model.id
       return option(isSelected, [
-        el('span', { class: 'sheet-option-title' }, [model.name]),
+        el('span', { class: 'sheet-option-title' }, [model.name || model.id]),
         model.description !== undefined ? el('span', { class: 'sheet-option-desc' }, [model.description]) : null,
       ], () => apply({
         provider: group.id,
@@ -133,11 +158,11 @@ export function renderModelSheet() {
       }))
     })
     kids.push(el('div', { class: 'sheet-section' }, [
-      el('div', { class: 'sheet-section-title' }, [group.name]),
+      el('div', { class: 'sheet-section-title' }, [group.name || group.id]),
       ...rows,
     ]))
   }
-  if (effortChoices.length > 0) {
+  if (selected && effortChoices.length > 0) {
     kids.push(el('div', { class: 'sheet-section' }, [
       el('div', { class: 'sheet-section-title' }, ['思考强度']),
       ...effortChoices.map((choice) => option(effectiveEffort === choice.effort, [

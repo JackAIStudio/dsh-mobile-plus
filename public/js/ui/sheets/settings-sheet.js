@@ -11,6 +11,7 @@ import { reloadApp, isDarkTheme, toggleTheme } from '../theme.js'
 import { unlockAudio, previewNotification } from '../../utils/notify.js'
 import { closeSheet, switchSheet, syncSheetPortal } from './portal.js'
 import { openModelSheet } from './model-sheet.js'
+import { currentModelLabel } from './model-catalog.js'
 
 export function settingsToggleRow(title, desc, value, onToggle) {
   return el('div', { class: 'sheet-toggle-row' }, [
@@ -48,7 +49,7 @@ export function settingsSheet() {
         onclick: () => void openModelSheet(),
       }, [
         el('div', { class: 'sheet-toggle-copy' }, [
-          el('span', { class: 'sheet-toggle-title' }, [model?.model || '选择模型']),
+          el('span', { class: 'sheet-toggle-title' }, [currentModelLabel()]),
           el('span', { class: 'sheet-toggle-desc' }, [
             model?.reasoningEffort
               ? `思考强度 ${model.reasoningEffort}`

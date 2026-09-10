@@ -1,0 +1,284 @@
+/**
+ * Chat header dual-line breadcrumb and context sheet styling.
+ */
+
+/* ── Top navigation dual-line title button ───────────────────────────── */
+.chat-header-title-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  margin: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.12s ease, opacity 0.12s ease;
+}
+
+.chat-header-title-btn:hover {
+  background: var(--m-bg-raised);
+}
+
+.chat-header-title-btn:active {
+  background: var(--m-bg-raised);
+  opacity: 0.8;
+}
+
+.chat-header-title-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--m-bg), 0 0 0 4px var(--m-accent);
+}
+
+.chat-header-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
+.chat-header-ws {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--m-text-dim);
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.chat-header-ws-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--m-text-dim);
+}
+
+.chat-header-ws-icon svg {
+  display: block;
+}
+
+.chat-header-ws-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  max-width: 140px;
+}
+
+.chat-header-chevron {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.6;
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+
+.chat-header-session {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--m-text);
+  line-height: 1.25;
+  min-width: 0;
+  width: 100%;
+}
+
+.chat-header-session-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+/* ── Context sheet ───────────────────────────────────────────────────── */
+.sheet-context-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 16px;
+}
+
+.sheet-context-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--m-bg-raised);
+  border: 1px solid var(--m-border);
+  color: var(--m-text-dim);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.sheet-context-close-btn:active {
+  background: var(--m-border);
+  color: var(--m-text);
+}
+
+.sheet-context-card {
+  background: var(--m-bg-raised);
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.sheet-context-ws-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sheet-context-ws-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--m-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-context-path-box {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--m-bg);
+  border: 1px solid var(--m-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sheet-context-path-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--m-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  user-select: all;
+}
+
+.sheet-context-copy-btn {
+  flex-shrink: 0;
+  border: none;
+  background: var(--m-bg-raised);
+  border: 1px solid var(--m-border);
+  color: var(--m-text);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.sheet-context-copy-btn:active {
+  background: var(--m-bg);
+}
+
+.sheet-context-badge-current {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--m-accent) 15%, transparent);
+  color: var(--m-accent);
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.sheet-context-session-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  border-bottom: 1px solid var(--m-border);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.12s ease;
+}
+
+.sheet-context-session-card:last-child {
+  border-bottom: none;
+}
+
+.sheet-context-session-card:active {
+  background: var(--m-bg-raised);
+}
+
+.sheet-context-session-card.is-active {
+  background: color-mix(in srgb, var(--m-accent) 8%, transparent);
+}
+
+.sheet-context-session-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sheet-context-session-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--m-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-context-session-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sheet-context-session-time {
+  font-size: 12px;
+  color: var(--m-text-dim);
+  white-space: nowrap;
+}
+
+.sheet-context-session-chevron {
+  font-size: 14px;
+  color: var(--m-text-dim);
+  line-height: 1;
+}
+
+.sheet-context-session-card.is-active .sheet-context-session-chevron {
+  color: var(--m-accent);
+  font-weight: 600;
+}

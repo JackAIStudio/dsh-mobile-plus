@@ -7,6 +7,7 @@ import { headerIcon } from '../ui/theme.js'
 import { formatMoney, formatQuotaClock, formatQuotaStamp } from '../utils/time.js'
 import { GEMINI_ICON, geminiView } from './quota-gemini.js'
 import { call } from './rpc.js'
+import { syncSheetPortal } from '../ui/sheets/portal.js'
 
 export { formatQuotaClock, formatQuotaStamp } from '../utils/time.js'
 export { GEMINI_ICON, geminiView } from './quota-gemini.js'
@@ -126,8 +127,8 @@ export function patchQuotaBarInDom() {
 
 export function renderQuotaIfVisible() {
   patchQuotaBarInDom()
-  if (state.sheet === 'quota' && typeof runtime.syncSheetPortal === 'function') {
-    runtime.syncSheetPortal(true)
+  if (state.sheet === 'quota') {
+    syncSheetPortal(true)
   }
 }
 
@@ -138,7 +139,7 @@ export function loadQuota(force) {
   }
   const hadSnapshot = quota.status === 'ready'
   quota.status = 'loading'
-  if (hadSnapshot) renderQuotaIfVisible()
+  if (hadSnapshot && force) renderQuotaIfVisible()
   quota.inFlight = call('quota.read', force ? { force: true } : {}).then((value) => {
     quota.inFlight = null
     quota.lastFetchAt = Date.now()
@@ -160,7 +161,7 @@ export function openQuotaSheet() {
   if (state.sheet === 'settings') state.sheetReturn = 'settings'
   state.sheet = 'quota'
   syncSheetPortal()
-  void loadQuota(true)
+  void loadQuota(false)
 }
 
 export function closeQuotaSheet() {

@@ -15,11 +15,12 @@ import { renderSlashMenu, loadSlashCatalog } from '../../chat/slash.js'
 import { ensureComposer, buildInputbar, syncInputbar, syncComposerDraft, setDraft } from '../../chat/composer.js'
 import { reconcileOutbox, openOutbox } from '../../chat/outbox.js'
 import { ensureLive, startPendingPoll } from '../../net/pending.js'
-import { renderQuotaBar } from '../../net/quota.js'
 import { captureChatScroll, applyChatScroll, captureTodoScroll, applyTodoScroll, onChatScroll } from '../../utils/scroll.js'
 import { composerSrc, openImageLightbox } from '../lightbox.js'
-import { headerIcon, themeToggle, reloadButton, headerActions, pwaButton, globalSettingsButton } from '../theme.js'
+import { renderChatHeader } from './chat-header.js'
 import { stopMuxObservation, ensureMux } from '../../net/mux.js'
+import { rememberCatalog } from '../sheets/model-catalog.js'
+import { syncSheetPortal } from '../sheets/portal.js'
 import { render } from './render.js'
 
 
@@ -125,6 +126,8 @@ export async function openChat(session, opts = {}) {
     chat.todos = null
     chat.approvals = []
     chat.questions = []
+    chat.currentModel = undefined
+    chat.modelCatalog = undefined
     const live = ensureLive(session.sessionId)
     live.completed = false
     state.running = live.running === true || session.running === true
@@ -143,8 +146,9 @@ export async function openChat(session, opts = {}) {
     // directory on every open) — old-plugin parity.
     void call('session.models', { sessionId: session.sessionId }).then((data) => {
       if (q !== runtime.chatQuery) return
-      chat.currentModel = data.current
+      rememberCatalog(data)
       if (state.view === 'chat') render()
+      if (state.sheet === 'settings' || state.sheet === 'model') syncSheetPortal(true)
     }).catch(() => { /* settings row falls back to a plain label */ })
     void loadSlashCatalog(session.sessionId)
     startPendingPoll()
@@ -226,22 +230,7 @@ export function renderChatParts() {
       : null
 
     return {
-      header: el('header', { class: 'mobile-header' }, [
-        el('button', {
-          type: 'button',
-          class: 'mobile-back',
-          'aria-label': '返回',
-          onclick: () => navBack(state.listMode === 'flat' ? { view: 'sessions' } : (state.workspace ? { view: 'sessions', workspaceId: state.workspace.workspaceId } : { view: 'workspaces' }))
-        }, ['‹']),
-        el('h1', {
-          class: 'mobile-title mobile-titleInline',
-          title: state.session ? sessionTitle(state.session) : '聊天',
-        }, [state.session ? sessionTitle(state.session) : '聊天']),
-        headerActions([
-          renderQuotaBar(),
-          globalSettingsButton(),
-        ]),
-      ]),
+      header: renderChatHeader(),
       error: state.error ? el('p', { class: 'mobile-error mobile-pad' }, [state.error]) : null,
       status: state.running ? el('div', { class: 'chat-turn-status' }, [
         el('span', { class: 'chat-turn-dots' }, [el('span'), el('span'), el('span')]),

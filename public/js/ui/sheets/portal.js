@@ -7,6 +7,7 @@ import { settingsSheet } from './settings-sheet.js'
 import { renderModelSheet } from './model-sheet.js'
 import { pwaSheet, powerSheet } from './system-sheets.js'
 import { renderWorkspacePickerSheet } from './workspace-sheet.js'
+import { renderChatContextSheet } from './context-sheet.js'
 import { quotaSheet } from '../../net/quota-sheet.js'
 
 export function getSheetPortal() {
@@ -39,7 +40,8 @@ export function syncSheetPortal(force = false) {
   if (!portal) return
 
   const target = state.sheet || null
-  if (!force && runtime.activeSheet === target && runtime.sheetNode && portal.contains(runtime.sheetNode)) {
+  const isCurrentActive = runtime.activeSheet === target && runtime.sheetNode && portal.contains(runtime.sheetNode)
+  if (!force && isCurrentActive) {
     return
   }
 
@@ -57,14 +59,29 @@ export function syncSheetPortal(force = false) {
   else if (target === 'pwa') node = pwaSheet()
   else if (target === 'power') node = powerSheet()
   else if (target === 'workspace-pick') node = renderWorkspacePickerSheet()
+  else if (target === 'chat-context') node = renderChatContextSheet()
 
-  runtime.activeSheet = target
-  runtime.sheetNode = node
+  const isUpdate = isCurrentActive && target === runtime.activeSheet
 
-  if (node) {
+  if (isUpdate && node) {
+    node.classList.add('no-anim')
+    const sheetEl = node.querySelector('.sheet')
+    if (sheetEl) sheetEl.classList.add('no-anim')
+    const oldBody = runtime.sheetNode ? runtime.sheetNode.querySelector('.sheet-body') : null
+    const scrollTop = oldBody ? oldBody.scrollTop : 0
+    runtime.activeSheet = target
+    runtime.sheetNode = node
     portal.replaceChildren(node)
+    const newBody = node.querySelector('.sheet-body')
+    if (newBody && scrollTop) newBody.scrollTop = scrollTop
   } else {
-    portal.replaceChildren()
+    runtime.activeSheet = target
+    runtime.sheetNode = node
+    if (node) {
+      portal.replaceChildren(node)
+    } else {
+      portal.replaceChildren()
+    }
   }
 }
 

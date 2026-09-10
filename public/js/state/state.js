@@ -84,6 +84,7 @@ export const chat = {
   showToolCalls: readStoredBoolean('dsh.mobile.showToolCalls', true),
   showSystemMessages: readStoredBoolean('dsh.mobile.showSystemMessages', false),
   currentModel: undefined,
+  modelCatalog: undefined,
   modelSheet: { status: 'loading' },
   modelBusy: false,
   modelError: undefined,
