@@ -97,7 +97,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  width: 100%;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 /* ── Context sheet ───────────────────────────────────────────────────── */

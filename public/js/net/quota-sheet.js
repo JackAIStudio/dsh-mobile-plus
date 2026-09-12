@@ -14,21 +14,40 @@ import {
   formatQuotaStamp,
   loadQuota,
   patchQuotaBarInDom,
+  activeContextQuotaTarget,
 } from './quota.js'
 
 export function pinQuotaButton(providerKey, label) {
-  const isPinned = (state.pinnedQuota || 'auto') === providerKey
+  const isPinned = state.pinnedQuota === providerKey
+  const target = activeContextQuotaTarget()
+  const isAutoActive = (state.pinnedQuota || 'auto') === 'auto' && target.channel === providerKey
+
+  let buttonText = '☆ 固定'
+  let buttonClass = 'quota-pin-btn'
+  let ariaLabel = `固定 ${label} 到顶栏显示`
+
+  if (isPinned) {
+    buttonText = '★ 已固定'
+    buttonClass += ' is-active'
+    ariaLabel = `当前已在顶栏固定显示 ${label}，点击恢复智能跟随`
+  } else if (isAutoActive) {
+    const reasonText = target.reason === 'chat' ? '当前会话' : '新建默认'
+    buttonText = `● 跟随中 (${reasonText})`
+    buttonClass += ' is-auto-active'
+    ariaLabel = `当前智能跟随此项 (${reasonText})，点击可固定锁定`
+  }
+
   return el('button', {
     type: 'button',
-    class: `quota-pin-btn${isPinned ? ' is-active' : ''}`,
-    'aria-label': isPinned ? `当前已在顶栏显示 ${label}` : `固定 ${label} 到顶栏显示`,
+    class: buttonClass,
+    'aria-label': ariaLabel,
     onclick: () => {
       state.pinnedQuota = isPinned ? 'auto' : providerKey
-      try { localStorage.setItem('dsh-mp-pinned-quota', state.pinnedQuota) } catch {}
+      try { localStorage.setItem('dsh-mp-pinned-quota-v2', state.pinnedQuota) } catch {}
       patchQuotaBarInDom()
       syncSheetPortal(true)
     },
-  }, [isPinned ? '★ 顶栏显示中' : '☆ 固定到顶栏'])
+  }, [buttonText])
 }
 
 export function quotaSheet() {
@@ -102,6 +121,36 @@ export function quotaSheet() {
         gm.fetchedAt ? el('p', { class: 'quota-hint' }, [`更新于 ${formatQuotaClock(gm.fetchedAt)}`]) : null,
         gm.error ? el('p', { class: 'quota-error' }, [gm.error]) : null,
       ])
+  const target = activeContextQuotaTarget()
+  const isAuto = (state.pinnedQuota || 'auto') === 'auto'
+  const targetContext = target.reason === 'chat'
+    ? `当前会话 (${target.model?.model || target.channel})`
+    : `新建默认 (${target.model?.model || target.channel})`
+
+  const modeBanner = isAuto
+    ? el('div', { class: 'quota-mode-banner is-auto' }, [
+        el('div', { class: 'quota-mode-info' }, [
+          el('span', { class: 'quota-mode-tag' }, ['智能跟随']),
+          el('span', { class: 'quota-mode-desc' }, [`顶栏对标 ${targetContext}`]),
+        ]),
+      ])
+    : el('div', { class: 'quota-mode-banner is-pinned' }, [
+        el('div', { class: 'quota-mode-info' }, [
+          el('span', { class: 'quota-mode-tag is-pinned' }, [`已锁定 ${state.pinnedQuota}`]),
+          el('span', { class: 'quota-mode-desc' }, ['顶栏已固定显示该模型']),
+        ]),
+        el('button', {
+          type: 'button',
+          class: 'quota-mode-reset',
+          onclick: () => {
+            state.pinnedQuota = 'auto'
+            try { localStorage.setItem('dsh-mp-pinned-quota-v2', 'auto') } catch {}
+            patchQuotaBarInDom()
+            syncSheetPortal(true)
+          },
+        }, ['恢复智能跟随']),
+      ])
+
   return el('div', { class: 'sheet-backdrop', onclick: () => closeSheet() }, [
     el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': '账户额度', onclick: (ev) => { ev.stopPropagation() } }, [
       el('div', { class: 'sheet-handle' }),
@@ -114,7 +163,7 @@ export function quotaSheet() {
           onclick: () => { void loadQuota(true) },
         }, [quota.status === 'loading' ? '刷新中…' : '刷新']),
       ]),
-      el('p', { class: 'sheet-hint', style: 'padding: 0 16px 8px; margin: 0;' }, ['提示：点击卡片右上角「固定到顶栏」，可自选将该账户余额显示在顶部胶囊。']),
+      modeBanner,
       el('div', { class: 'sheet-body' }, [dsBody, gkBody, gmBody]),
     ]),
   ])

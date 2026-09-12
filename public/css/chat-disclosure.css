@@ -1,0 +1,198 @@
+/* ── message disclosures (reasoning / tools) ─────────────────────────── */
+
+.chat-disclosure {
+  margin-bottom: 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--m-bg) 55%, transparent);
+  overflow: hidden;
+}
+
+.chat-disclosure-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--m-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-disclosure-caret {
+  flex: none;
+  color: var(--m-text-tertiary);
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.chat-disclosure-open .chat-disclosure-caret {
+  transform: rotate(90deg);
+}
+
+.chat-disclosure-label {
+  flex: none;
+  color: var(--m-text-secondary);
+}
+
+.chat-reasoning[data-pending] .chat-disclosure-label {
+  color: var(--m-accent);
+}
+
+.chat-disclosure-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+}
+
+.chat-disclosure-count {
+  flex: none;
+  color: var(--m-text-tertiary);
+  font-size: 11px;
+}
+
+.chat-disclosure-body {
+  padding: 8px 10px 10px;
+  border-top: 1px dashed var(--m-border);
+  color: var(--m-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.chat-tools-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-tool-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-bg-raised);
+}
+
+.chat-tool-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.chat-tool-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chat-tool-args {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--m-bg-input);
+  color: var(--m-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* ── turn status indicator (#1017) ───────────────────────────────────── */
+
+.chat-turn-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  color: var(--m-accent);
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(
+    90deg,
+    var(--m-accent) 0%,
+    color-mix(in srgb, var(--m-accent) 60%, #ffffff) 50%,
+    var(--m-accent) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-shimmer 1.8s linear infinite;
+}
+
+.chat-turn-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.chat-turn-dots span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--m-accent);
+  animation: dsh-dot-bounce 1.2s ease-in-out infinite;
+}
+
+.chat-turn-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chat-turn-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes dsh-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@keyframes dsh-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* ── chat context usage chip (chat-tools row) ───────────────────────── */
+
+.chat-context {
+  flex: none;
+  align-self: center;
+  padding: 2px 10px;
+  border: 1px solid var(--m-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--m-text-tertiary) 10%, transparent);
+  color: var(--m-text-tertiary);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.chat-context-warn {
+  border-color: var(--m-danger);
+  background: color-mix(in srgb, var(--m-danger) 14%, transparent);
+  color: var(--m-danger);
+}

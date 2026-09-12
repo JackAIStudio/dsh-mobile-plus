@@ -3,7 +3,23 @@
  * Host `session.modelCatalog` returns `{ default, groups }`; older
  * `session.models` returned `{ current, groups }`. Accept both.
  */
-import { chat } from '../../state/state.js'
+import { state, chat } from '../../state/state.js'
+import { call } from '../../net/rpc.js'
+import { patchQuotaBarInDom } from '../../net/quota.js'
+
+export async function loadDefaultModel() {
+  try {
+    const data = await call('session.models', {})
+    const def = data?.default || data?.current
+    if (def && typeof def === 'object' && typeof def.provider === 'string') {
+      state.defaultModel = def
+      patchQuotaBarInDom()
+    }
+    return state.defaultModel
+  } catch {
+    return null
+  }
+}
 
 export function catalogGroups(data) {
   return Array.isArray(data?.groups) ? data.groups : []
@@ -38,9 +54,14 @@ export function rememberCatalog(data) {
   if (data && typeof data === 'object') {
     chat.modelCatalog = data
     if (chat.modelSheet?.status === 'loading') chat.modelSheet = { status: 'ready', data }
+    const def = data.default || (!chat.currentModel ? data.current : undefined)
+    if (def && typeof def === 'object' && typeof def.provider === 'string') {
+      state.defaultModel = def
+    }
   }
   const selection = selectedModel(data)
   if (selection) chat.currentModel = selection
+  patchQuotaBarInDom()
 }
 
 export function currentModelLabel() {

@@ -431,6 +431,14 @@ export function applyTurnEnd(state, event) {
 
 export function createState(existing) {
     const messages = existing === undefined ? [] : [...existing]
+    let contextWindow
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const windowSize = messages[i].contextWindow
+      if (typeof windowSize === 'number' && Number.isFinite(windowSize) && windowSize > 0) {
+        contextWindow = windowSize
+        break
+      }
+    }
     const state = {
       messages,
       byId: new Map(),
@@ -438,7 +446,7 @@ export function createState(existing) {
       turnStepMessage: new Map(),
       messageTurn: new Map(),
       toolNames: new Map(),
-      contextWindow: undefined,
+      contextWindow,
       maxSeq: -1,
     }
     for (const message of messages) {

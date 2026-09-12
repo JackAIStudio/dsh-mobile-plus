@@ -6,6 +6,8 @@ import { call } from './rpc.js'
 import { loadQuota } from './quota.js'
 import { stopPendingPoll } from './pending.js'
 import { foldEvents, applySessionTitle, isRecord, toWireEvent } from '../chat/fold.js'
+import { applyContextPressure, absorbContextEvent } from '../chat/context-usage.js'
+import { syncSheetPortal } from '../ui/sheets/portal.js'
 import { applyTodosLiveEvent, isStandingTodoEvent, applyTodosProjection } from '../ui/todo.js'
 import { applySessionLive, applyPendingFrame, ensureLive } from './pending.js'
 import { dropOutboxEcho, reconcileOutbox } from '../chat/outbox.js'
@@ -235,6 +237,16 @@ export class MuxClient {
             seq: typeof page.projections.asOfSeq === 'number' ? page.projections.asOfSeq : maxSeq,
           })
         }
+        const projectedPressure = page.projections?.values?.contextPressure
+        if (projectedPressure && typeof projectedPressure === 'object') {
+          this.emit({
+            type: 'session/projection',
+            sessionId,
+            key: 'contextPressure',
+            value: projectedPressure,
+            seq: typeof page.projections.asOfSeq === 'number' ? page.projections.asOfSeq : maxSeq,
+          })
+        }
         // Todos ride turn/start + todo/write events (standing-plan lifetime).
         // Do not re-emit the history-tail projection here: its asOfSeq is the
         // log head, which would stamp an unchanged list with a high seq and
@@ -428,6 +440,13 @@ export function handleMuxFrame(frame) {
         }
         return
       }
+      if (frame.key === 'contextPressure') {
+        if (applyContextPressure(frame.sessionId, frame.value, frame.seq)) {
+          if (state.view === 'chat') render()
+          if (state.sheet === 'settings') syncSheetPortal(true)
+        }
+        return
+      }
     }
     if (frame?.type === 'session/event' && typeof frame.sessionId === 'string' && frame.event?.type === 'session/title') {
       const data = isRecord(frame.event.data) ? frame.event.data : {}
@@ -458,15 +477,18 @@ export function handleMuxFrame(frame) {
         chat.overflow = true
       }
       chat.liveBuffer.push(ev)
+      if (absorbContextEvent(ev) && state.sheet === 'settings') syncSheetPortal(true)
       return
     }
     if (!chat.folder) return
+    const pressureChanged = absorbContextEvent(ev)
     const next = chat.folder.fold([ev])
     const todosChanged = applyTodosLiveEvent(frame.sessionId, ev)
     const messagesChanged = next !== chat.messages
     if (messagesChanged) chat.messages = next
     const outboxChanged = ev.type === 'user/message' && reconcileOutbox(frame.sessionId)
     if (messagesChanged || turnMarker || todosChanged || outboxChanged) render()
+    if (pressureChanged && state.sheet === 'settings') syncSheetPortal(true)
   }
 
 export function stopMuxObservation() {

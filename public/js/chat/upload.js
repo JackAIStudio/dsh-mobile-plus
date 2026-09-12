@@ -5,7 +5,7 @@ import { state, runtime } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { formatBytes } from '../utils/time.js'
 import { rpcId } from '../net/rpc.js'
-import { closeImageLightbox } from '../ui/lightbox.js'
+import { closeImageLightbox, openImageLightbox } from '../ui/lightbox.js'
 import { syncComposerDraft } from './composer.js'
 import { render } from '../ui/views/render.js'
 
@@ -222,4 +222,44 @@ export function pickFromFiles() {
 export function removeComposerImage(index) {
     const att = state.attachments[index]
     if (att) removeAttachment(att.id)
+  }
+
+export function renderComposerAttachments() {
+    if (!state.attachments.length) return null
+    return el('div', { class: 'composer-pics' }, state.attachments.map((att) => {
+      const remove = el('button', {
+        type: 'button',
+        class: 'composer-pic-remove',
+        'aria-label': '移除附件',
+        onclick: (ev) => { ev.stopPropagation(); removeAttachment(att.id) },
+      }, ['×'])
+      const overlay = att.status === 'uploading'
+        ? el('div', { class: 'composer-pic-progress' }, [`${Math.round((att.progress || 0) * 100)}%`])
+        : att.status === 'failed'
+          ? el('div', { class: 'composer-pic-progress' }, ['失败'])
+          : null
+      if (isImageAttachment(att) && att.preview) {
+        return el('div', { class: `composer-pic${att.status === 'failed' ? ' is-failed' : ''}` }, [
+          el('button', {
+            type: 'button',
+            class: 'composer-pic-open',
+            'aria-label': att.name ? `放大查看 ${att.name}` : '放大查看即将发送的图片',
+            onclick: () => openImageLightbox(att.preview),
+          }, [el('img', { src: att.preview, alt: att.name || '' })]),
+          overlay,
+          remove,
+        ])
+      }
+      return el('div', { class: `composer-file${att.status === 'failed' ? ' is-failed' : ''}` }, [
+        el('div', { class: 'composer-file-name' }, [att.name || '文件']),
+        el('div', { class: 'composer-file-meta' }, [
+          att.status === 'uploading'
+            ? `上传 ${Math.round((att.progress || 0) * 100)}%`
+            : att.status === 'failed'
+              ? (att.error || '失败')
+              : formatBytes(att.size),
+        ]),
+        remove,
+      ])
+    }))
   }

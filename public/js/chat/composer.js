@@ -1,24 +1,12 @@
 /**
  * Chat composer input bar, IME handling, and keydown listeners.
  */
-import { state, chat, runtime } from '../state/state.js'
+import { state, runtime } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { send, stopTurn } from './outbox.js'
 import { pickFromFiles } from './upload.js'
 import { renderSlashMenu } from './slash.js'
 import { render } from '../ui/views/render.js'
-
-export function contextUsage() {
-    for (let i = chat.messages.length - 1; i >= 0; i -= 1) {
-      const message = chat.messages[i]
-      if (message.kind !== 'assistant' || !message.usage) continue
-      const windowSize = message.contextWindow
-      if (!windowSize || windowSize <= 0) continue
-      const tokens = message.usage.inputTokens + (message.usage.cacheReadTokens || 0) + (message.usage.cacheWriteTokens || 0)
-      return Math.round(tokens / windowSize * 100)
-    }
-    return undefined
-  }
 
 export function autosizeInput(node) {
     if (!node || runtime.imeComposing) return

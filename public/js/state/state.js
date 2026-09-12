@@ -44,7 +44,19 @@ export const state = {
   view: 'boot', // boot | pair | error | workspaces | sessions | chat | dir
   listMode: (() => { try { return localStorage.getItem('dsh-mp-list-mode') || 'flat' } catch { return 'flat' } })(),
   sortMode: (() => { try { return localStorage.getItem('dsh-mp-sort-mode') || 'recent' } catch { return 'recent' } })(),
-  pinnedQuota: (() => { try { return localStorage.getItem('dsh-mp-pinned-quota') || 'auto' } catch { return 'auto' } })(),
+  pinnedQuota: (() => {
+    try {
+      const v2 = localStorage.getItem('dsh-mp-pinned-quota-v2')
+      if (v2) return v2
+      // 升级迁移：清理旧版全局静态 Pin，默认启用上下文智能跟随（会话内看当前模型，会话外看新建默认）
+      localStorage.removeItem('dsh-mp-pinned-quota')
+      localStorage.setItem('dsh-mp-pinned-quota-v2', 'auto')
+      return 'auto'
+    } catch {
+      return 'auto'
+    }
+  })(),
+  defaultModel: undefined,
   error: '',
   workspaces: [],
   wsQuery: '',
@@ -75,6 +87,7 @@ export const state = {
 
 export const chat = {
   folder: null,
+  contextPressure: undefined,
   messages: [],
   hasOlder: false,
   loading: true,

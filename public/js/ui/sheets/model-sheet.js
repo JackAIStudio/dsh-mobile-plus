@@ -4,6 +4,7 @@
 import { state, chat } from '../../state/state.js'
 import { el } from '../../utils/dom.js'
 import { call } from '../../net/rpc.js'
+import { patchQuotaBarInDom } from '../../net/quota.js'
 import { closeSheet, switchSheet, syncSheetPortal } from './portal.js'
 import {
   catalogFailures,
@@ -129,6 +130,8 @@ function renderModelSheetBody(sheet, close) {
       })
       chat.modelBusy = false
       chat.currentModel = result.selected
+      if (result.selected) state.defaultModel = result.selected
+      patchQuotaBarInDom()
       close()
     } catch (err) {
       chat.modelBusy = false

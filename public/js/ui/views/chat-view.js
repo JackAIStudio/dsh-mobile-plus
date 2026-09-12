@@ -3,24 +3,25 @@
  */
 import { state, chat, runtime } from '../../state/state.js'
 import { el, rootEl } from '../../utils/dom.js'
-import { formatBytes } from '../../utils/time.js'
 import { call } from '../../net/rpc.js'
 import { commitLocation, navBack, persistRoute } from '../../state/route.js'
 import { EventFolder, foldEvents, toWireEvent, seedSessionTitleFromPage, sessionTitle } from '../../chat/fold.js'
+import { resetContextPressure, seedContextPressureFromPage } from '../../chat/context-usage.js'
 import { seedTodosFromPage, renderTodoDock, applyTodoEventsAfter, standingTodos, todoWatermark } from '../todo.js'
-import { messageHtml, isHiddenSystemMessage } from '../markdown.js'
+import { messageHtml, isHiddenSystemMessage } from '../message.js'
 import { renderApprovalPanel, renderQuestionPanel } from '../../chat/approvals.js'
-import { removeComposerImage, clearAttachments, removeAttachment, isImageAttachment } from '../../chat/upload.js'
+import { clearAttachments, renderComposerAttachments } from '../../chat/upload.js'
 import { renderSlashMenu, loadSlashCatalog } from '../../chat/slash.js'
 import { ensureComposer, buildInputbar, syncInputbar, syncComposerDraft, setDraft } from '../../chat/composer.js'
 import { reconcileOutbox, openOutbox } from '../../chat/outbox.js'
 import { ensureLive, startPendingPoll } from '../../net/pending.js'
 import { captureChatScroll, applyChatScroll, captureTodoScroll, applyTodoScroll, onChatScroll } from '../../utils/scroll.js'
-import { composerSrc, openImageLightbox } from '../lightbox.js'
 import { renderChatHeader } from './chat-header.js'
 import { stopMuxObservation, ensureMux } from '../../net/mux.js'
 import { rememberCatalog } from '../sheets/model-catalog.js'
 import { syncSheetPortal } from '../sheets/portal.js'
+import { openTimelineSheet } from '../sheets/timeline-sheet.js'
+import { deriveTurns, renderTurnDivider } from '../../chat/timeline.js'
 import { render } from './render.js'
 
 
@@ -48,6 +49,7 @@ export async function loadTail() {
       chat.hasOlder = Boolean(page.hasMore)
       seedTodosFromPage(sid, page, buffered)
       seedSessionTitleFromPage(sid, page)
+      seedContextPressureFromPage(sid, page, buffered)
       reconcileOutbox(sid)
       state.error = ''
       // The buffer overflowed while waiting (oldest events were dropped), so
@@ -62,6 +64,7 @@ export async function loadTail() {
           chat.messages = folder.fold((fresh.events || []).map(toWireEvent))
           seedTodosFromPage(sid, fresh)
           seedSessionTitleFromPage(sid, fresh)
+          seedContextPressureFromPage(sid, fresh)
           reconcileOutbox(sid)
         } catch { /* best-effort */ }
       }
@@ -80,6 +83,7 @@ export async function loadTail() {
       if (state.session?.sessionId !== sid) return
       chat.loading = false
       render()
+      if (state.sheet === 'settings') syncSheetPortal(true)
     }
   }
 
@@ -123,10 +127,15 @@ export async function openChat(session, opts = {}) {
     runtime.todoScroll.top = 0
     runtime.todoScroll.stick = true
     todoWatermark.delete(session.sessionId)
+    resetContextPressure(session.sessionId)
+    seedContextPressureFromPage(session.sessionId, { projections: session.projections })
     chat.todos = null
     chat.approvals = []
     chat.questions = []
-    chat.currentModel = undefined
+    const initialModel = session?.projections?.values?.modelSelection?.next
+      || session?.projections?.values?.modelSelection?.lastUsed
+      || (session?.blank ? state.defaultModel : undefined)
+    chat.currentModel = initialModel ? { ...initialModel } : undefined
     chat.modelCatalog = undefined
     const live = ensureLive(session.sessionId)
     live.completed = false
@@ -174,60 +183,28 @@ export function renderChatParts() {
     if (chat.loading && chat.messages.length === 0 && localPending.length === 0) {
       scroller.append(el('div', { class: 'chat-typing' }, ['加载中…']))
     }
+    const turns = deriveTurns(chat.messages, localPending)
+    const turnByFirstMsgId = new Map()
+    for (const t of turns) {
+      if (t.userMsgId) turnByFirstMsgId.set(t.userMsgId, t)
+    }
+
     let visible = 0
-    for (const m of chat.messages) {
+    const allMsgs = [...chat.messages, ...localPending]
+    for (const m of allMsgs) {
       if (isHiddenSystemMessage(m)) continue
       visible += 1
-      scroller.append(messageHtml(m))
-    }
-    for (const m of localPending) {
-      visible += 1
-      scroller.append(messageHtml(m))
+      const turn = turnByFirstMsgId.get(m.id)
+      if (turn) scroller.append(renderTurnDivider(turn, openTimelineSheet))
+      const node = messageHtml(m)
+      node.id = m.id
+      scroller.append(node)
     }
     if (visible === 0 && !chat.loading) {
       scroller.append(el('div', { class: 'chat-typing' }, ['还没有消息，发一句试试']))
     }
     for (const approval of chat.approvals) scroller.append(renderApprovalPanel(approval))
     for (const group of chat.questions) scroller.append(renderQuestionPanel(group))
-
-    const pics = state.attachments.length
-      ? el('div', { class: 'composer-pics' }, state.attachments.map((att) => {
-          const remove = el('button', {
-            type: 'button',
-            class: 'composer-pic-remove',
-            'aria-label': '移除附件',
-            onclick: (ev) => { ev.stopPropagation(); removeAttachment(att.id) },
-          }, ['×'])
-          const overlay = att.status === 'uploading'
-            ? el('div', { class: 'composer-pic-progress' }, [`${Math.round((att.progress || 0) * 100)}%`])
-            : att.status === 'failed'
-              ? el('div', { class: 'composer-pic-progress' }, ['失败'])
-              : null
-          if (isImageAttachment(att) && att.preview) {
-            return el('div', { class: `composer-pic${att.status === 'failed' ? ' is-failed' : ''}` }, [
-              el('button', {
-                type: 'button',
-                class: 'composer-pic-open',
-                'aria-label': att.name ? `放大查看 ${att.name}` : '放大查看即将发送的图片',
-                onclick: () => openImageLightbox(att.preview),
-              }, [el('img', { src: att.preview, alt: att.name || '' })]),
-              overlay,
-              remove,
-            ])
-          }
-          return el('div', { class: `composer-file${att.status === 'failed' ? ' is-failed' : ''}` }, [
-            el('div', { class: 'composer-file-name' }, [att.name || '文件']),
-            el('div', { class: 'composer-file-meta' }, [
-              att.status === 'uploading'
-                ? `上传 ${Math.round((att.progress || 0) * 100)}%`
-                : att.status === 'failed'
-                  ? (att.error || '失败')
-                  : formatBytes(att.size),
-            ]),
-            remove,
-          ])
-        }))
-      : null
 
     return {
       header: renderChatHeader(),
@@ -238,7 +215,7 @@ export function renderChatParts() {
       ]) : null,
       scroller,
       todos: renderTodoDock(standingTodos()),
-      pics,
+      pics: renderComposerAttachments(),
       slash: renderSlashMenu(),
     }
   }

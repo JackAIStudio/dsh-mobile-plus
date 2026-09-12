@@ -1,7 +1,7 @@
 /**
  * Quota and balance tracking for DeepSeek, Grok, and Gemini.
  */
-import { state, quota, runtime, QUOTA_DEBOUNCE_MS } from '../state/state.js'
+import { state, chat, quota, runtime, QUOTA_DEBOUNCE_MS } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { headerIcon } from '../ui/theme.js'
 import { formatMoney, formatQuotaClock, formatQuotaStamp } from '../utils/time.js'
@@ -170,30 +170,77 @@ export function closeQuotaSheet() {
   syncSheetPortal()
 }
 
+export function resolveModelQuotaChannel(selection) {
+  if (!selection || typeof selection !== 'object') return null
+  const provider = String(selection.provider || '').toLowerCase()
+  const model = String(selection.model || '').toLowerCase()
+
+  if (provider.includes('deepseek') || model.includes('deepseek')) {
+    return 'deepseek'
+  }
+  if (provider.includes('gemini') || model.includes('gemini')) {
+    return 'gemini'
+  }
+  if (provider.includes('grok') || model.includes('grok')) {
+    return 'grok'
+  }
+  return null
+}
+
+export function activeContextQuotaTarget() {
+  const pinned = state.pinnedQuota || 'auto'
+  if (pinned !== 'auto') {
+    return { channel: pinned, reason: 'pinned' }
+  }
+
+  // Auto 智能跟随：
+  // 1. 会话内：优先跟随当前会话实际使用的模型
+  if (state.view === 'chat') {
+    const sessionModel = chat.currentModel
+      || state.session?.projections?.values?.modelSelection?.next
+      || state.session?.projections?.values?.modelSelection?.lastUsed
+    const channel = resolveModelQuotaChannel(sessionModel)
+    if (channel) {
+      return { channel, reason: 'chat', model: sessionModel }
+    }
+  }
+
+  // 2. 会话区外（工作区列表/会话列表页）：对标新建会话默认模型
+  const defModel = state.defaultModel
+  const defChannel = resolveModelQuotaChannel(defModel)
+  if (defChannel) {
+    return { channel: defChannel, reason: state.view === 'chat' ? 'fallback-default' : 'default', model: defModel }
+  }
+
+  return { channel: 'auto', reason: 'fallback' }
+}
+
 export function renderQuotaBar() {
   const ds = deepseekView()
   const gk = grokView()
   const gm = geminiView()
   if (!ds && !gk && !gm) return null
 
-  const pinned = state.pinnedQuota || 'auto'
+  const target = activeContextQuotaTarget()
   let activeView = null
   let displayIcon = WHALE_ICON
   let label = '额度'
+  let targetDesc = ''
 
-  if (pinned === 'gemini' && gm && gm.amount && gm.amount !== '查不到') {
+  if (target.channel === 'gemini' && gm && gm.amount && gm.amount !== '查不到') {
     activeView = gm
     displayIcon = GEMINI_ICON
     label = gm.capsuleLabel || gm.amount
-  } else if (pinned === 'grok' && gk && gk.amount && gk.amount !== '查不到') {
+  } else if (target.channel === 'grok' && gk && gk.amount && gk.amount !== '查不到') {
     activeView = gk
     displayIcon = GROK_ICON
     label = gk.amount.includes('已使用') ? gk.amount.replace('已使用', '').trim() : gk.amount
-  } else if (pinned === 'deepseek' && ds && ds.amount && ds.amount !== '查不到' && ds.amount !== '未配置') {
+  } else if (target.channel === 'deepseek' && ds && ds.amount && ds.amount !== '查不到' && ds.amount !== '未配置') {
     activeView = ds
     displayIcon = WHALE_ICON
     label = ds.amount
   } else {
+    // 兜底降级：目标无额度或未识别时按可用额度展示
     if (ds && ds.amount && ds.amount !== '查不到' && ds.amount !== '未配置') {
       activeView = ds
       displayIcon = WHALE_ICON
@@ -212,9 +259,19 @@ export function renderQuotaBar() {
     }
   }
 
+  if (target.reason === 'chat') {
+    targetDesc = `【当前会话: ${target.model?.model || target.channel}】`
+  } else if (target.reason === 'default') {
+    targetDesc = `【新建默认: ${target.model?.model || target.channel}】`
+  } else if (target.reason === 'pinned') {
+    targetDesc = `【已固定: ${target.channel}】`
+  }
+
   const hasAlert = ds?.kind === 'alert' || ds?.kind === 'error' || gk?.kind === 'alert' || gk?.kind === 'error' || gm?.kind === 'alert' || gm?.kind === 'error'
   const hasWarn = ds?.kind === 'warn' || gk?.kind === 'warn' || gm?.kind === 'warn'
   const isLoading = ds?.loading || gk?.loading || gm?.loading
+
+  const tooltip = `${targetDesc ? `${targetDesc} ` : ''}${quotaSummary()}，点击切换关注与查看详情`
 
   return el('button', {
     type: 'button',
@@ -224,8 +281,8 @@ export function renderQuotaBar() {
       hasAlert ? 'is-alert' : '',
       hasWarn && !hasAlert ? 'is-warn' : '',
     ].filter(Boolean).join(' '),
-    title: `${quotaSummary()}，点击切换关注与查看详情`,
-    'aria-label': `${quotaSummary()}，点击切换关注与查看详情`,
+    title: tooltip,
+    'aria-label': tooltip,
     onclick: () => openQuotaSheet(),
   }, [
     headerIcon(displayIcon),

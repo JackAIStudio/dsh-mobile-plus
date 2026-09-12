@@ -8,6 +8,7 @@ import { renderModelSheet } from './model-sheet.js'
 import { pwaSheet, powerSheet } from './system-sheets.js'
 import { renderWorkspacePickerSheet } from './workspace-sheet.js'
 import { renderChatContextSheet } from './context-sheet.js'
+import { renderTimelineSheet } from './timeline-sheet.js'
 import { quotaSheet } from '../../net/quota-sheet.js'
 
 export function getSheetPortal() {
@@ -60,6 +61,7 @@ export function syncSheetPortal(force = false) {
   else if (target === 'power') node = powerSheet()
   else if (target === 'workspace-pick') node = renderWorkspacePickerSheet()
   else if (target === 'chat-context') node = renderChatContextSheet()
+  else if (target === 'timeline') node = renderTimelineSheet()
 
   const isUpdate = isCurrentActive && target === runtime.activeSheet
 

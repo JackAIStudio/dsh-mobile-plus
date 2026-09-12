@@ -12,6 +12,7 @@ import { renderSessions, loadSessions, startListPoll } from './session-view.js'
 import { applyChatPage } from './chat-view.js'
 import { renderDir, renderPair } from './dir-view.js'
 import { syncSheetPortal } from '../sheets.js'
+import { loadDefaultModel } from '../sheets/model-catalog.js'
 import { loadQuota } from '../../net/quota.js'
 import { ensureMux, ensureHost } from '../../net/mux.js'
 import { restoreRoute } from '../../state/route.js'
@@ -30,6 +31,7 @@ export async function enterApp() {
       await Promise.all([
         loadWorkspaces(),
         loadPresets(),
+        loadDefaultModel(),
         ensureMux(),
         ensureHost(),
       ])
