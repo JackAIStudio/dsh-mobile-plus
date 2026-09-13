@@ -1,0 +1,148 @@
+/**
+ * Slash command and skill quick menu stylesheet.
+ */
+
+.slash-menu {
+  flex: none;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 12px 6px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-bg-raised);
+  box-shadow: var(--m-shadow-raise);
+  z-index: 20;
+}
+
+.slash-group {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 12px 4px;
+  background: var(--m-bg-raised);
+  color: var(--m-text-tertiary);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid color-mix(in srgb, var(--m-border) 40%, transparent);
+}
+
+.slash-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--m-text-tertiary);
+  font-size: 13px;
+}
+
+.slash-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--m-border) 35%, transparent);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease;
+}
+
+.slash-item:last-child {
+  border-bottom: none;
+}
+
+.slash-item:active {
+  background: var(--m-accent-soft);
+}
+
+.slash-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.slash-item-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+
+.slash-badge-skill {
+  background: color-mix(in srgb, var(--m-accent) 15%, transparent);
+  color: var(--m-accent);
+}
+
+.slash-badge-command {
+  background: color-mix(in srgb, var(--m-text-tertiary) 18%, transparent);
+  color: var(--m-text-secondary);
+}
+
+.slash-item-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--m-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-item-desc {
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Composer slash trigger button ─────────────────────────────────────── */
+
+.slash-trigger-btn {
+  flex: none;
+  align-self: flex-end;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.12s ease;
+}
+
+.slash-trigger-btn:active,
+.slash-trigger-btn.is-active {
+  background: var(--m-accent-soft);
+  border-color: var(--m-accent);
+  color: var(--m-accent);
+}
+
+.slash-trigger-btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.slash-trigger-icon {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+}

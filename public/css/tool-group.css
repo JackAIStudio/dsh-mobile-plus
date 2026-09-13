@@ -1,0 +1,267 @@
+/* ── tool grouping capsule & accordion (compact mobile presentation) ── */
+
+.chat-tool-group {
+  margin: 4px 0;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--m-bg-raised) 75%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.chat-tool-group.is-running {
+  border-color: color-mix(in srgb, var(--m-accent) 45%, var(--m-border));
+  background: color-mix(in srgb, var(--m-accent) 6%, var(--m-bg-raised));
+}
+
+.chat-tool-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--m-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+.chat-tool-group-head:active {
+  background: color-mix(in srgb, var(--m-text) 5%, transparent);
+}
+
+.chat-tool-group-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.chat-tool-group-caret {
+  display: inline-block;
+  color: var(--m-text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chat-tool-group.is-open .chat-tool-group-caret {
+  transform: rotate(90deg);
+}
+
+/* 运行态呼吸点 */
+.chat-tool-group-pulse {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--m-accent);
+}
+
+.chat-tool-group-pulse::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--m-accent);
+  opacity: 0.8;
+  animation: tool-pulse-ring 1.4s cubic-bezier(0.25, 0.8, 0.25, 1) infinite;
+}
+
+@keyframes tool-pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.chat-tool-group-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-tool-group-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--m-text);
+  white-space: nowrap;
+}
+
+.chat-tool-group.is-running .chat-tool-group-title {
+  color: var(--m-accent);
+}
+
+.chat-tool-group-names {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--m-text-tertiary);
+  font-size: 11.5px;
+  font-family: var(--m-font-mono, monospace);
+}
+
+.chat-tool-group-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--m-border) 60%, transparent);
+  color: var(--m-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.chat-tool-group.is-running .chat-tool-group-badge {
+  background: color-mix(in srgb, var(--m-accent) 15%, transparent);
+  color: var(--m-accent);
+}
+
+/* 展开区域 */
+.chat-tool-group-body {
+  padding: 8px 10px 10px;
+  border-top: 1px dashed var(--m-border);
+  background: color-mix(in srgb, var(--m-bg) 50%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-tool-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-bg-raised);
+}
+
+.chat-tool-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chat-tool-item-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--m-accent) 10%, transparent);
+  color: var(--m-accent);
+  font-family: var(--m-font-mono, monospace);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.chat-tool-item-status {
+  font-size: 10.5px;
+  color: var(--m-text-tertiary);
+}
+
+.chat-tool-item-status.is-running {
+  color: var(--m-accent);
+}
+
+.chat-tool-item-status.is-error {
+  color: var(--m-danger, #e5484d);
+}
+
+.chat-tool-item-status.is-ok {
+  color: var(--m-text-tertiary);
+}
+
+.chat-tool-item-args {
+  margin: 2px 0 0;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--m-bg) 75%, transparent);
+  color: var(--m-text-secondary);
+  font-size: 11px;
+  font-family: var(--m-font-mono, monospace);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* 运行态活跃卡片：高亮展示当前正在跑的工具与人类可读 description */
+.chat-tool-live-card {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--m-accent) 40%, var(--m-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--m-accent) 5%, var(--m-bg-raised));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.chat-tool-live-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.chat-tool-live-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--m-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-tool-history-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px dashed var(--m-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--m-bg) 60%, transparent);
+  color: var(--m-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+/* 更早消息加载按钮 loading 动效 */
+.chat-load-older.is-loading {
+  opacity: 0.75;
+  cursor: wait;
+}

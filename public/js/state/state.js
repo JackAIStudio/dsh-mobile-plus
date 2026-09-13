@@ -5,7 +5,24 @@ import { readStoredBoolean } from '../utils/storage.js'
 
 export const runtime = {
   audioUnlocked: false,
-  notificationsEnabled: (() => { try { return localStorage.getItem('dsh-mp-notify') === 'true' } catch { return false } })(),
+  notificationsEnabled: (() => {
+    try {
+      const val = localStorage.getItem('dsh-mp-notify')
+      if (val === 'false') return false
+      return true
+    } catch {
+      return true
+    }
+  })(),
+  soundEnabled: (() => {
+    try {
+      const val = localStorage.getItem('dsh-mp-sound')
+      if (val === 'false') return false
+      return true
+    } catch {
+      return true
+    }
+  })(),
   ignoringPop: false,
   routeGen: 0,
   chatQuery: 0,
@@ -42,6 +59,7 @@ export const runtime = {
 
 export const state = {
   view: 'boot', // boot | pair | error | workspaces | sessions | chat | dir
+  bootMessage: '',
   listMode: (() => { try { return localStorage.getItem('dsh-mp-list-mode') || 'flat' } catch { return 'flat' } })(),
   sortMode: (() => { try { return localStorage.getItem('dsh-mp-sort-mode') || 'recent' } catch { return 'recent' } })(),
   pinnedQuota: (() => {
@@ -81,6 +99,9 @@ export const state = {
   home: '',
   dirError: '',
   todayAvailable: false,
+  pins: [],
+  pinnedIds: new Set(),
+  actionSession: null,
   sheet: null,
   sheetReturn: null,
 }
@@ -103,6 +124,7 @@ export const chat = {
   modelError: undefined,
   todos: null,
   todoCollapsed: readStoredBoolean('dsh.mobile.todoCollapsed', true),
+  goal: null,
   slashCommands: [],
   slashSkills: [],
   approvals: [],

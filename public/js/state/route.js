@@ -18,8 +18,10 @@ export function parseRoute(hash) {
     if (path === '') return { view: state.listMode === 'flat' ? 'sessions' : 'workspaces', empty: true }
     const segs = path.split('/').map(decodeRouteSeg).filter(Boolean)
     if (segs.length === 1 && segs[0] === 'dir') return { view: 'dir' }
+    if (segs.length === 1 && segs[0] === 'pair') return { view: 'pair' }
     if (segs[0] === 'recent' || segs[0] === 'sessions') return { view: 'sessions' }
     if (segs[0] === 'workspaces') return { view: 'workspaces' }
+    if (segs[0] === 's' && segs[1]) return { view: 'chat', sessionId: segs[1] }
     if (segs[0] === 'ws' && segs[1]) {
       if (segs[2] === 's' && segs[3]) {
         return { view: 'chat', workspaceId: segs[1], sessionId: segs[3] }
@@ -119,6 +121,12 @@ export async function applyRoute(route, opts = {}) {
     const locationMode = locationModeFor(opts)
     const still = () => gen === runtime.routeGen
 
+    if (route.view === 'pair') {
+      state.view = 'pair'
+      render()
+      return
+    }
+
     if (!route || (route.view !== 'dir' && route.view !== 'sessions' && route.view !== 'chat' && route.view !== 'workspaces')) {
       if (state.listMode === 'flat') {
         if (state.view === 'chat') showRecentSessionsFromChat(locationMode)
@@ -155,6 +163,16 @@ export async function applyRoute(route, opts = {}) {
         return
       }
       await openRecentSessions({ locationMode })
+      return
+    }
+
+    if (route.view === 'chat' && route.sessionId && !route.workspaceId) {
+      const matchWs = (state.workspaces || []).find((w) => (w.sessionIds || []).includes(route.sessionId))
+      if (matchWs) {
+        state.workspace = matchWs
+      }
+      const listed = (state.sessions || []).find((item) => item.sessionId === route.sessionId)
+      await openChat(listed || { sessionId: route.sessionId }, { locationMode })
       return
     }
 
@@ -213,3 +231,9 @@ export async function restoreRoute() {
       runtime.ignoringPop = false
     }
   }
+
+export async function navigateToSession(sessionId) {
+  if (!sessionId) return
+  if (state.view === 'chat' && state.session?.sessionId === sessionId) return
+  await applyRoute({ view: 'chat', sessionId }, { locationMode: 'push' })
+}

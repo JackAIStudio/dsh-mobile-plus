@@ -17,9 +17,12 @@ import { loadQuota } from '../../net/quota.js'
 import { ensureMux, ensureHost } from '../../net/mux.js'
 import { restoreRoute } from '../../state/route.js'
 import { startPendingPoll, stopPendingPoll } from '../../net/pending.js'
+import { loadSlashCatalog } from '../../chat/slash.js'
 import { boot } from '../../app.js'
+import { cleanPairUrl } from '../../net/pair.js'
 
 export async function enterApp() {
+    cleanPairUrl()
     state.error = ''
     state.loading = true
     if (state.view !== 'boot') {
@@ -37,6 +40,7 @@ export async function enterApp() {
       ])
       startListPoll()
       void loadQuota(false)
+      void loadSlashCatalog()
       await restoreRoute()
       if (state.view !== 'error') state.loading = false
     } catch (err) {
@@ -53,7 +57,7 @@ export function render() {
       closeImageLightbox()
     }
     if (state.view === 'boot') {
-      rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [el('p', { class: 'mobile-muted' }, ['正在连接…'])]))
+      rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [el('p', { class: 'mobile-muted' }, [state.bootMessage || '正在连接…'])]))
     } else if (state.view === 'error') {
       rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [
         el('p', { class: 'mobile-error', role: 'alert' }, [state.error || '无法连接到运行中的 DSH host。']),

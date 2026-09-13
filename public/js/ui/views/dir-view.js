@@ -6,7 +6,7 @@ import { el, basename } from '../../utils/dom.js'
 import { call } from '../../net/rpc.js'
 import { parsePairInput, acceptPair } from '../../net/pair.js'
 import { commitLocation, navBack, reloadPaired, persistRoute } from '../../state/route.js'
-import { headerIcon, headerActions, globalSettingsButton } from '../theme.js'
+import { headerIcon, headerActions, globalSettingsButton, reloadApp } from '../theme.js'
 import { render } from './render.js'
 import { loadWorkspaces, openWorkspace } from './ws-view.js'
 
@@ -129,6 +129,7 @@ export function renderPair() {
       ]),
       input,
       el('button', { type: 'submit', class: 'mobile-new mobile-pairSubmit', disabled: state.creating }, ['配对']),
+      el('button', { type: 'button', class: 'mobile-button mobile-pairRefresh', onclick: () => reloadApp() }, ['刷新页面']),
     ])
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault()
@@ -149,5 +150,14 @@ export function renderPair() {
       }
       reloadPaired()
     })
-    return el('main', { class: 'mobile mobile-pair' }, [form])
+    const reloadBtn = el('button', {
+      type: 'button',
+      class: 'mobile-pairReloadBtn',
+      'aria-label': '刷新页面',
+      title: '刷新页面',
+      onclick: () => reloadApp(),
+    }, [
+      headerIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>'),
+    ])
+    return el('main', { class: 'mobile mobile-pair' }, [reloadBtn, form])
   }

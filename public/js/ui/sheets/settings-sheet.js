@@ -8,7 +8,9 @@ import { call } from '../../net/rpc.js'
 import { contextUsage } from '../../chat/context-usage.js'
 import { quotaSummary, openQuotaSheet } from '../../net/quota.js'
 import { reloadApp, isDarkTheme, toggleTheme } from '../theme.js'
-import { unlockAudio, previewNotification } from '../../utils/notify.js'
+import { render } from '../views/render.js'
+import { pollUntilOnline } from '../../net/pair.js'
+import { unlockAudio, previewNotification, syncPushSubscription, unsubscribePush } from '../../utils/notify.js'
 import { closeSheet, switchSheet, syncSheetPortal } from './portal.js'
 import { openModelSheet } from './model-sheet.js'
 import { currentModelLabel } from './model-catalog.js'
@@ -142,24 +144,36 @@ export function settingsSheet() {
   sections.push(el('div', { class: 'sheet-section' }, [
     el('div', { class: 'sheet-section-title' }, ['偏好与通知']),
     settingsToggleRow('深色模式', '跟随系统或手动切换浅色/深色主题', isDarkTheme(), () => toggleTheme()),
-    settingsToggleRow('任务完成通知', '宿主上任一会话完成任务时发送通知与提示音', runtime.notificationsEnabled, async (v) => {
+    settingsToggleRow('任务完成通知', '宿主上任一会话完成任务时发送系统横幅与锁屏推送', runtime.notificationsEnabled, async (v) => {
       if (v) {
-        try {
-          unlockAudio()
-          const p = await Notification.requestPermission()
-          if (p === 'granted') {
-            runtime.notificationsEnabled = true
-            try { localStorage.setItem('dsh-mp-notify', 'true') } catch {}
-            alert('通知与提示音已开启！')
-          } else {
-            alert('请在系统或浏览器设置中允许通知权限。')
+        runtime.notificationsEnabled = true
+        try { localStorage.setItem('dsh-mp-notify', 'true') } catch {}
+        if (typeof Notification === 'undefined') {
+          alert('当前环境不支持系统横幅通知（需 HTTPS 访问或添加到主屏幕 PWA）。')
+        } else if (Notification.permission !== 'granted') {
+          try {
+            const p = await Notification.requestPermission()
+            if (p !== 'granted') alert('系统未允许横幅通知权限，请在手机系统或浏览器设置中允许。')
+          } catch (e) {
+            console.error(e)
           }
-        } catch (e) {
-          console.error(e)
         }
+        void syncPushSubscription()
       } else {
         runtime.notificationsEnabled = false
         try { localStorage.setItem('dsh-mp-notify', 'false') } catch {}
+        void unsubscribePush()
+      }
+      syncSheetPortal(true)
+    }),
+    settingsToggleRow('任务完成提示音', '任一会话完成任务时播放清脆提示音', runtime.soundEnabled, (v) => {
+      if (v) {
+        unlockAudio()
+        runtime.soundEnabled = true
+        try { localStorage.setItem('dsh-mp-sound', 'true') } catch {}
+      } else {
+        runtime.soundEnabled = false
+        try { localStorage.setItem('dsh-mp-sound', 'false') } catch {}
       }
       syncSheetPortal(true)
     }),
@@ -167,12 +181,12 @@ export function settingsSheet() {
       type: 'button',
       class: 'sheet-nav-row',
       'aria-haspopup': 'dialog',
-      'aria-label': '试听通知与提示音',
+      'aria-label': '试听当前通知与提示音',
       onclick: () => { void previewNotification() },
     }, [
       el('div', { class: 'sheet-toggle-copy' }, [
-        el('span', { class: 'sheet-toggle-title' }, ['试听通知与提示音']),
-        el('span', { class: 'sheet-toggle-desc' }, ['立即播放提示音并发送一条测试通知']),
+        el('span', { class: 'sheet-toggle-title' }, ['试听当前通知与提示音']),
+        el('span', { class: 'sheet-toggle-desc' }, ['根据当前开启的配置测试声音或发送测试通知']),
       ]),
       el('span', { class: 'sheet-nav-chevron', 'aria-hidden': 'true' }, ['♪']),
     ]),
@@ -223,13 +237,23 @@ export function settingsSheet() {
       class: 'sheet-nav-row',
       style: 'color: var(--m-danger);',
       'aria-label': '重启核心服务',
-      onclick: () => {
+      onclick: async () => {
         if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务。如果你的宿主不是通过常驻进程运行的，可能需要去终端手动重新启动。')) return
         closeSheet()
-        void call('host.restart', {}).then((res) => {
-          if (!res.ok) alert('重启请求失败: ' + (res.error?.message || '未知错误'))
-          else setTimeout(() => reloadApp(), 1500)
-        }).catch((err) => alert('发送重启指令失败: ' + err.message))
+        state.bootMessage = '宿主服务正在重启，正在重新连接…'
+        state.view = 'boot'
+        render()
+        void call('host.restart', {}).catch(() => {})
+        await new Promise((r) => setTimeout(r, 2000))
+        const online = await pollUntilOnline(25)
+        state.bootMessage = ''
+        if (online) {
+          reloadApp()
+        } else {
+          state.error = '主机重启耗时较长或未重新启动，请检查终端。'
+          state.view = 'error'
+          render()
+        }
       },
     }, [
       el('div', { class: 'sheet-toggle-copy' }, [

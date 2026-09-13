@@ -3,7 +3,7 @@
  * Only dependency wiring and lifecycle initialization live here.
  */
 import { state, runtime } from './state/state.js'
-import { pairStatus, acceptPair, parsePairInput } from './net/pair.js'
+import { pairStatus, acceptPair, parsePairInput, checkPairStatus, cleanPairUrl } from './net/pair.js'
 import { loadQuota } from './net/quota.js'
 import { refreshPending } from './net/pending.js'
 import { refreshLiveSnapshot } from './ui/views/session-view.js'
@@ -11,23 +11,49 @@ import { enterApp, render } from './ui/views/render.js'
 import { applyTheme } from './ui/theme.js'
 import { installOverscrollLock, pinViewport } from './utils/scroll.js'
 import { autosizeInput, flushComposerRender } from './chat/composer.js'
-import { reloadPaired, applyRoute, parseRoute } from './state/route.js'
+import { reloadPaired, applyRoute, parseRoute, navigateToSession } from './state/route.js'
+import { setupPinsSync } from './net/pins.js'
+import { installAudioUnlockOnGesture, syncPushSubscription } from './utils/notify.js'
 
 export async function boot() {
   state.view = 'boot'
+  state.bootMessage = ''
   render()
   try {
-    const paired = await pairStatus()
-    if (paired) {
+    let check = await checkPairStatus()
+    // 若服务刚重启中（offline），进行短暂自动重试，平滑等待主机就绪，避免误判未配对
+    if (check.offline) {
+      state.bootMessage = '正在连接主机…'
+      render()
+      for (let i = 0; i < 3; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 1200))
+        check = await checkPairStatus()
+        if (!check.offline) break
+      }
+    }
+
+    if (check.offline) {
+      state.bootMessage = ''
+      state.error = '无法连接到 DSH 主机，主机可能正在重启或离线。'
+      state.view = 'error'
+      render()
+      return
+    }
+
+    state.bootMessage = ''
+    if (check.paired) {
+      cleanPairUrl()
       await enterApp()
       return
     }
+
     const token = parsePairInput(window.location.href)
     if (token) {
       const message = await acceptPair(token)
       if (message) {
         state.dirError = message
       } else {
+        cleanPairUrl()
         reloadPaired()
         return
       }
@@ -35,6 +61,7 @@ export async function boot() {
     state.view = 'pair'
     render()
   } catch (err) {
+    state.bootMessage = ''
     state.error = String(err.message || err)
     state.view = 'error'
     render()
@@ -58,6 +85,12 @@ export function isAppleMobile() {
 export function registerPwa() {
   if (navigator.serviceWorker) {
     navigator.serviceWorker.register('/mp/sw.js', { scope: '/mp/', updateViaCache: 'none' }).catch(() => {})
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'dsh-open-session' && event.data.sessionId) {
+        void navigateToSession(event.data.sessionId)
+      }
+    })
+    void syncPushSubscription()
   }
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault()
@@ -87,7 +120,9 @@ if (typeof window !== 'undefined') {
   applyTheme()
   pinViewport()
   installOverscrollLock()
+  installAudioUnlockOnGesture()
   registerPwa()
+  setupPinsSync()
 
   window.addEventListener('popstate', () => {
     if (runtime.ignoringPop) return

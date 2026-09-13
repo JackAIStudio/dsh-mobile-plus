@@ -1,0 +1,188 @@
+/**
+ * Tool Image Card Styles — responsive aspect-ratio previews & skeleton states.
+ */
+
+.tool-image-card {
+  margin: 8px 0;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-bg-raised);
+  overflow: hidden;
+  box-shadow: var(--m-shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+.tool-image-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--m-border);
+  background: color-mix(in srgb, var(--m-bg-raised) 92%, var(--m-bg));
+}
+
+.tool-image-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--m-accent);
+}
+
+.tool-image-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+  flex: none;
+}
+
+.tool-image-badge {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-weight: 500;
+  flex: none;
+}
+
+.tool-image-badge.is-running {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  animation: tool-image-pulse 1.8s infinite ease-in-out;
+}
+
+.tool-image-badge.is-ok {
+  background: rgba(30, 158, 106, 0.12);
+  color: var(--m-success);
+}
+
+.tool-image-badge.is-error {
+  background: rgba(214, 69, 69, 0.12);
+  color: var(--m-danger);
+}
+
+.tool-image-summary {
+  font-size: 12px;
+  color: var(--m-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-image-gallery {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.tool-image-thumb-btn {
+  appearance: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: color-mix(in srgb, var(--m-bg) 60%, black 5%);
+  cursor: pointer;
+  position: relative;
+  width: 100%;
+  display: block;
+  overflow: hidden;
+}
+
+.tool-image-thumb-btn:active {
+  opacity: 0.92;
+}
+
+.tool-image-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tool-image-meta-pill {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 12px;
+  letter-spacing: 0.2px;
+  font-weight: 500;
+}
+
+.tool-image-skeleton {
+  width: 100%;
+  background: color-mix(in srgb, var(--m-bg) 80%, black 5%);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tool-image-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.15) 50%, transparent 100%);
+  animation: tool-image-shimmer-anim 1.6s infinite;
+}
+
+.tool-image-loading-text {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  color: var(--m-text-tertiary);
+}
+
+.tool-image-error-box {
+  padding: 14px 12px;
+  background: rgba(214, 69, 69, 0.05);
+}
+
+.tool-image-error-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-danger);
+  margin-bottom: 4px;
+}
+
+.tool-image-error-desc {
+  font-size: 12px;
+  color: var(--m-text-secondary);
+  line-height: 1.4;
+}
+
+.tool-image-foot {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--m-text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-bg-raised);
+}
+
+.tool-image-path-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes tool-image-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes tool-image-shimmer-anim {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}

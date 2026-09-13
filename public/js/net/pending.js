@@ -5,6 +5,7 @@ import { state, chat, runtime } from '../state/state.js'
 import { el } from '../utils/dom.js'
 import { call } from './rpc.js'
 import { render } from '../ui/views/render.js'
+import { triggerTaskDoneNotification } from '../utils/notify.js'
 
 export function ensureLive(sessionId) {
     let row = runtime.sessionLive.get(sessionId)
@@ -67,6 +68,7 @@ export function hydrateSessionLive(item, listedAt = 0) {
     row.running = listedRunning
     if (row.prevRunning && !row.running) {
       if (item.sessionId !== state.session?.sessionId) row.completed = true
+      triggerTaskDoneNotification(item.title || '会话', item.sessionId)
     } else if (row.running) {
       row.completed = false
     }

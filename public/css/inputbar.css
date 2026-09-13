@@ -1,0 +1,147 @@
+/**
+ * Chat input bar, composite card layout (top textarea, bottom toolbar).
+ */
+
+.chat-inputbar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px calc(var(--m-kb-bottom) + 10px);
+  border-top: 1px solid var(--m-border);
+  background: var(--m-bg);
+}
+
+.chat-input-main {
+  width: 100%;
+  display: flex;
+}
+
+.chat-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 130px;
+  field-sizing: content;
+  overflow-y: auto;
+  padding: 9px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-bg-input);
+  color: var(--m-text);
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  caret-color: var(--m-text);
+  box-sizing: border-box;
+}
+
+.chat-input:focus {
+  border-color: var(--m-accent);
+}
+
+.chat-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--m-bg), 0 0 0 4px var(--m-accent);
+}
+
+.chat-input-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-input-tools-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-input-tools-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Tool buttons in input bar: uniform 36px height */
+.chat-input-tools .context-usage-btn,
+.chat-input-tools .attach-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--m-border);
+  border-radius: 9px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+  align-self: center;
+}
+
+.chat-input-tools .context-usage-btn:active,
+.chat-input-tools .attach-btn:active {
+  background: var(--m-bg-input);
+  transform: scale(0.96);
+}
+
+.chat-input-tools .attach-btn:disabled {
+  opacity: 0.5;
+}
+
+.chat-input-tools .attach-btn-icon,
+.chat-input-tools .attach-btn-icon svg {
+  display: block;
+  width: 19px;
+  height: 19px;
+}
+
+.chat-input-tools .context-usage-ring,
+.chat-input-tools .context-usage-svg {
+  width: 30px;
+  height: 30px;
+}
+
+.chat-send {
+  flex: none;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 9px;
+  background: var(--m-accent);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.chat-send:active {
+  filter: brightness(0.92);
+}
+
+.chat-send:disabled {
+  opacity: 0.5;
+}
+
+.chat-send:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--m-bg), 0 0 0 4px var(--m-accent);
+}
+
+/* Running state: the primary button carries only the square stop icon */
+.chat-send-stop {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+  font-size: 14px;
+}

@@ -4,9 +4,11 @@
  */
 import { AuthManager } from './lib/auth.js'
 import { LanBridge } from './lib/lan-bridge.js'
+import { RelayBridge } from './lib/relay-bridge.js'
 import { createPendingTracker } from './lib/events.js'
 import { createDispatcher } from './lib/rpc.js'
 import { setupRoutes } from './lib/routes.js'
+import { setupPersistenceHook } from './lib/web-push.js'
 import { svc } from './lib/utils.js'
 
 export const name = 'dsh-mobile-plus'
@@ -29,9 +31,29 @@ export function apply(ctx, config = {}) {
     return () => bridge.stop()
   }, 'dsh-mobile-plus: lan bridge')
 
+  let relayInstance = null
+
   ctx.effect(() => {
-    return setupRoutes(ctx, auth, pendingTracker, dispatch)
+    const port = typeof ctx.webServer?.port === 'number' ? ctx.webServer.port : 3080
+    relayInstance = new RelayBridge(port, config)
+    if (relayInstance.publicBaseUrl && !auth.publicBaseUrl) {
+      auth.publicBaseUrl = relayInstance.publicBaseUrl
+      try {
+        auth.publicHost = new URL(auth.publicBaseUrl).host
+      } catch {}
+    }
+    relayInstance.start()
+    return () => {
+      if (relayInstance) relayInstance.stop()
+      relayInstance = null
+    }
+  }, 'dsh-mobile-plus: relay bridge')
+
+  ctx.effect(() => {
+    return setupRoutes(ctx, auth, pendingTracker, dispatch, () => relayInstance)
   }, 'dsh-mobile-plus: routes')
+
+  setupPersistenceHook(ctx)
 
   ctx.effect(() => {
     const controller = new AbortController()

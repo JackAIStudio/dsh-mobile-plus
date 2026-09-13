@@ -3,6 +3,8 @@
  */
 import { state, runtime } from '../state/state.js'
 import { basename } from '../utils/dom.js'
+import { applyCommandRun, applyCommandDone } from './commands.js'
+import { applyToolResult } from './tool-results.js'
 
 export function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -50,6 +52,10 @@ export function imagesFromContent(content) {
     const out = []
     for (const block of content) {
       if (!isRecord(block) || block.type !== 'image') continue
+      if (block.attachment && typeof block.attachment === 'object' && block.attachment.attachmentId) {
+        out.push(block.attachment)
+        continue
+      }
       const mediaType = pickString(block.mediaType) ?? 'image/jpeg'
       const data = pickString(block.data)
       if (data === undefined) continue
@@ -344,7 +350,7 @@ export function applyToolCall(state, event) {
     const existingIndex = tools.findIndex((tool) => tool.callId === callId)
     const isNewCall = existingIndex === -1
     const nextTools = isNewCall
-      ? [...tools, { callId, name, ...(args !== undefined ? { arguments: args } : {}) }]
+      ? [...tools, { callId, name, status: 'running', ...(args !== undefined ? { arguments: args } : {}) }]
       : tools.map((tool, index) => index === existingIndex
         ? { ...tool, ...(args !== undefined ? { arguments: args } : {}) }
         : tool)
@@ -406,6 +412,19 @@ export function applyTurnEnd(state, event) {
     }
     for (const message of targets) {
       const wasPending = message.pending === true
+      let nextTools = message.tools
+      if (Array.isArray(message.tools) && message.tools.some((t) => t.status === 'running')) {
+        nextTools = message.tools.map((t) => {
+          if (t.status === 'running') {
+            return {
+              ...t,
+              status: t.attachments?.length ? 'ok' : 'error',
+              errorText: t.attachments?.length ? undefined : (t.errorText || '工具未返回结果或执行中断'),
+            }
+          }
+          return t
+        })
+      }
       // 失败且有 assistant 消息但文本为空（流式占位、未发出任何内容就报错）
       // 时，把失败原因补进去，避免渲染出一条空气泡。
       let errorText
@@ -419,6 +438,7 @@ export function applyTurnEnd(state, event) {
       }
       replaceMessage(state, message, {
         ...message,
+        ...(nextTools !== message.tools ? { tools: nextTools } : {}),
         ...(wasPending ? { pending: false } : {}),
         ...(failed ? { failed: true } : {}),
         ...(errorText !== undefined ? { text: errorText } : {}),
@@ -492,6 +512,15 @@ export function applyEvent(state, ev) {
         break
       case 'tool/call':
         applyToolCall(state, ev)
+        break
+      case 'tool/result':
+        applyToolResult(state, ev)
+        break
+      case 'command/run':
+        applyCommandRun(state, ev)
+        break
+      case 'command/done':
+        applyCommandDone(state, ev)
         break
       case 'todo/write':
         break

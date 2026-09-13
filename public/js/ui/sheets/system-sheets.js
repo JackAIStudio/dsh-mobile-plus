@@ -6,6 +6,8 @@ import { el } from '../../utils/dom.js'
 import { call } from '../../net/rpc.js'
 import { isSecurePage, isAppleMobile } from '../../app.js'
 import { reloadApp } from '../theme.js'
+import { render } from '../views/render.js'
+import { pollUntilOnline } from '../../net/pair.js'
 import { closeSheet } from './portal.js'
 
 export function pwaSheet() {
@@ -78,13 +80,23 @@ export function powerSheet() {
       el('div', { class: 'sheet-body' }, [
         el('div', { class: 'pwa-actions', style: 'display: flex; flex-direction: column; gap: 12px;' }, [
           el('button', { type: 'button', class: 'mobile-button', onclick: () => { close(); reloadApp() } }, ['刷新前端页面']),
-          el('button', { type: 'button', class: 'mobile-new', style: 'background: var(--dsw-alias-state-error-primary); border-color: transparent;', onclick: () => {
+          el('button', { type: 'button', class: 'mobile-new', style: 'background: var(--dsw-alias-state-error-primary); border-color: transparent;', onclick: async () => {
             if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务，如果你的宿主不是通过 pm2 等工具常驻运行的，可能需要手动去终端重新启动。')) return
             close()
-            void call('host.restart', {}).then((res) => {
-              if (!res.ok) alert('重启请求失败: ' + (res.error?.message || '未知错误'))
-              else setTimeout(() => reloadApp(), 1500)
-            }).catch((err) => alert('发送重启指令失败: ' + err.message))
+            state.bootMessage = '宿主服务正在重启，正在重新连接…'
+            state.view = 'boot'
+            render()
+            void call('host.restart', {}).catch(() => {})
+            await new Promise((r) => setTimeout(r, 2000))
+            const online = await pollUntilOnline(25)
+            state.bootMessage = ''
+            if (online) {
+              reloadApp()
+            } else {
+              state.error = '主机重启耗时较长或未启动，请检查终端。'
+              state.view = 'error'
+              render()
+            }
           } }, ['重启核心服务']),
         ]),
       ]),

@@ -1,0 +1,149 @@
+/* ── Session Pins & Toast Styles ─────────────────────────────────────── */
+
+/* Global Toast Notification */
+.mobile-toast-container {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--m-kb-bottom, 0px) + 64px);
+  transform: translateX(-50%) translateY(12px) scale(0.95);
+  padding: 10px 18px;
+  border-radius: 20px;
+  background: rgba(26, 28, 30, 0.92);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 99999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.mobile-toast-container.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+/* Session Section Divider */
+.mobile-session-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.mobile-session-section-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Pinned Session Card */
+.mobile-session-card.is-pinned {
+  position: relative;
+  background: color-mix(in srgb, var(--m-accent) 5%, var(--m-bg-raised));
+  border-color: color-mix(in srgb, var(--m-accent) 32%, var(--m-border));
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--m-accent) 10%, transparent);
+}
+
+.mobile-session-card.is-pinned::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3.5px;
+  border-radius: 0 3px 3px 0;
+  background: var(--m-accent);
+}
+
+/* Pin Tag inside Card Header */
+.mobile-pin-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+  margin-right: 2px;
+  opacity: 0.95;
+}
+
+/* Session Card Action Button - Active Pinned State */
+.mobile-session-card-action.is-pinned-action {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  border-color: color-mix(in srgb, var(--m-accent) 30%, transparent);
+}
+
+/* Session Action Sheet Styles */
+.session-sheet-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.session-sheet-header-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--m-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-sheet-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--m-text-tertiary);
+}
+
+.session-sheet-ws {
+  color: var(--m-accent);
+  font-weight: 500;
+}
+
+.session-sheet-action-btn {
+  padding: 13px 12px;
+  margin-bottom: 2px;
+}
+
+.session-sheet-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--m-bg-input);
+}
+
+.session-sheet-pin-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--m-bg-input);
+  color: var(--m-text-tertiary);
+  flex: none;
+  font-weight: 500;
+}
+
+.session-sheet-pin-pill.is-active {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+}

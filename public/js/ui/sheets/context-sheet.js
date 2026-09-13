@@ -11,6 +11,8 @@ import { createSessionInWorkspace } from '../views/session-create.js'
 import { showSessionsFromChat } from '../views/session-view.js'
 import { openChat } from '../views/chat-view.js'
 import { closeSheet, syncSheetPortal } from './portal.js'
+import { isSessionPinned, toggleSessionPin, formatSessionReferenceMention } from '../../net/pins.js'
+import { showToast } from '../../utils/toast.js'
 
 export function openChatContextSheet() {
   state.sheet = 'chat-context'
@@ -91,6 +93,50 @@ export function renderChatContextSheet() {
     ]) : null,
   ])
 
+  const isCurrentPinned = isSessionPinned(currentSessionId)
+  const currentTitle = state.session ? sessionTitle(state.session) : '当前会话'
+
+  const currentSessionSection = currentSessionId ? el('div', { class: 'sheet-section' }, [
+    el('div', { class: 'sheet-section-title' }, ['当前会话']),
+    el('button', {
+      type: 'button',
+      class: 'sheet-nav-row session-sheet-action-btn',
+      onclick: () => {
+        closeSheet()
+        void toggleSessionPin(currentSessionId, !isCurrentPinned)
+      },
+    }, [
+      el('span', { class: 'session-sheet-action-icon', 'aria-hidden': 'true' }, [isCurrentPinned ? '📍' : '📌']),
+      el('div', { class: 'sheet-toggle-copy' }, [
+        el('span', { class: 'sheet-toggle-title' }, [isCurrentPinned ? '取消置顶此会话' : '置顶此会话 📌']),
+        el('span', { class: 'sheet-toggle-desc' }, [
+          isCurrentPinned ? '从会话列表置顶分组中移除' : '固定在手机端与 Web 端会话列表最顶部',
+        ]),
+      ]),
+      el('span', { class: `session-sheet-pin-pill${isCurrentPinned ? ' is-active' : ''}` }, [isCurrentPinned ? '已置顶' : '未置顶']),
+    ]),
+    el('button', {
+      type: 'button',
+      class: 'sheet-nav-row session-sheet-action-btn',
+      onclick: async () => {
+        try {
+          const mention = formatSessionReferenceMention(currentSessionId, currentTitle)
+          await navigator.clipboard.writeText(mention)
+          showToast('已复制会话引用')
+        } catch {
+          showToast('复制失败')
+        }
+        closeSheet()
+      },
+    }, [
+      el('span', { class: 'session-sheet-action-icon', 'aria-hidden': 'true' }, ['💬']),
+      el('div', { class: 'sheet-toggle-copy' }, [
+        el('span', { class: 'sheet-toggle-title' }, ['复制当前会话引用']),
+        el('span', { class: 'sheet-toggle-desc' }, ['@[会话](dsh-session:...) 格式']),
+      ]),
+    ]),
+  ]) : null
+
   // Collect sessions for this workspace
   let siblingSessions = []
   if (ws) {
@@ -106,6 +152,7 @@ export function renderChatContextSheet() {
   const sessionItems = siblingSessions.map((raw) => {
     const s = decorateSession(raw)
     const isCurrent = s.sessionId === currentSessionId
+    const isPinned = isSessionPinned(s.sessionId)
     const title = s.blank ? '新会话' : sessionTitle(s)
 
     return el('button', {
@@ -122,6 +169,7 @@ export function renderChatContextSheet() {
     }, [
       el('div', { class: 'sheet-context-session-left' }, [
         sessionStatusDot(s),
+        isPinned ? el('span', { class: 'mobile-pin-tag', 'aria-label': '已置顶' }, ['📌']) : null,
         el('span', { class: 'sheet-context-session-title' }, [title]),
         isCurrent ? el('span', { class: 'sheet-context-badge-current' }, ['当前']) : null,
       ]),
@@ -157,6 +205,7 @@ export function renderChatContextSheet() {
       ]),
       el('div', { class: 'sheet-body' }, [
         wsSection,
+        currentSessionSection,
         sessionsSection,
       ].filter(Boolean)),
     ]),

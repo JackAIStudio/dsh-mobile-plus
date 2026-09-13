@@ -1,7 +1,7 @@
 /**
  * Message markup generation and display filters.
  */
-import { chat, runtime } from '../state/state.js'
+import { state, chat, runtime } from '../state/state.js'
 import { openImageLightbox } from './lightbox.js'
 import { parseTodos, renderTodoCard } from './todo.js'
 import { parseInboxDelivery } from '../chat/upload.js'
@@ -9,6 +9,9 @@ import { retryOutbox } from '../chat/outbox.js'
 import { el, basename } from '../utils/dom.js'
 import { formatTime } from '../utils/time.js'
 import { renderMarkdown } from './markdown.js'
+import { isImageTool, renderToolImageCard } from '../chat/tool-image.js'
+import { renderToolGroupCard } from './tool-group.js'
+import { loadAttachmentUrl } from '../chat/attachment-loader.js'
 
 export function isHiddenSystemMessage(m) {
   if (chat.showSystemMessages) return false
@@ -21,7 +24,22 @@ export function isHiddenSystemMessage(m) {
 }
 
 export function messageHtml(m) {
+  if (m.kind === 'command-result') {
+    const isError = m.outcome === 'error'
+    const cmdName = m.commandName || '命令'
+    return el('div', { class: `chat-msg chat-msg-command-result ${isError ? 'chat-msg-failed' : ''}` }, [
+      el('div', { class: 'command-result-header' }, [
+        el('span', { class: 'command-result-icon', html: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5 3.5l5 4.5-5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' }),
+        el('span', { class: 'command-result-name' }, [cmdName]),
+        el('span', { class: 'command-result-tag' }, [isError ? '失败' : '完成']),
+      ]),
+      el('div', { class: 'command-result-text' }, [m.text || '']),
+      el('span', { class: 'chat-msg-time' }, [formatTime(m.time)]),
+    ])
+  }
+
   const cls = ['chat-msg', m.kind === 'user' ? 'chat-msg-user' : 'chat-msg-assistant']
+  if (m.isCommand) cls.push('chat-msg-command')
   if (m.pending) cls.push('chat-msg-pending')
   if (m.failed) cls.push('chat-msg-failed')
 
@@ -47,12 +65,33 @@ export function messageHtml(m) {
       : parsed.paths.filter((path) => !runtime.previewByPath.has(path)).map((path) => ({ name: basename(path), path }))
     return el('div', { class: cls.join(' ') }, [
       parsed.text ? el('div', { class: 'chat-msg-text' }, [parsed.text]) : null,
-      thumbs.length ? el('div', { class: 'chat-msg-images' }, thumbs.map((src) => el('button', {
-        type: 'button',
-        class: 'chat-msg-image-btn',
-        'aria-label': '放大查看图片',
-        onclick: () => openImageLightbox(src),
-      }, [el('img', { src, alt: '' })]))) : null,
+      thumbs.length ? el('div', { class: 'chat-msg-images' }, thumbs.map((item) => {
+        if (typeof item === 'string') {
+          return el('button', {
+            type: 'button',
+            class: 'chat-msg-image-btn',
+            'aria-label': '放大查看图片',
+            onclick: () => openImageLightbox(item),
+          }, [el('img', { src: item, alt: '' })])
+        }
+        if (item && item.attachmentId) {
+          const sessId = state.session?.sessionId || ''
+          const img = el('img', { alt: item.name || '', class: 'chat-msg-thumb-img' })
+          const btn = el('button', {
+            type: 'button',
+            class: 'chat-msg-image-btn',
+            'aria-label': '放大查看图片',
+            onclick: async () => {
+              const thumb = img.src || await loadAttachmentUrl(sessId, item.attachmentId, 'thumb')
+              const raw = await loadAttachmentUrl(sessId, item.attachmentId, 'raw')
+              openImageLightbox(thumb, raw)
+            },
+          }, [img])
+          loadAttachmentUrl(sessId, item.attachmentId, 'thumb').then((url) => { img.src = url })
+          return btn
+        }
+        return null
+      }).filter(Boolean)) : null,
       fileCards.length ? el('div', { class: 'chat-msg-files' }, fileCards.map((file) => el('div', { class: 'chat-msg-file' }, [
         el('span', { class: 'chat-msg-file-name' }, [file.name || '文件']),
       ]))) : null,
@@ -77,10 +116,15 @@ export function messageHtml(m) {
       el('div', { class: 'chat-disclosure-body' }, [m.reasoning]),
     ]))
   }
-  if (chat.showToolCalls && m.tools?.length) {
+  if (m.tools?.length) {
+    const imageTools = []
     const todoTools = []
     const otherTools = []
     for (const tool of m.tools) {
+      if (isImageTool(tool)) {
+        imageTools.push(tool)
+        continue
+      }
       if (tool.name === 'todo_write') {
         const parsed = parseTodos(tool.arguments)
         if (parsed) {
@@ -90,20 +134,18 @@ export function messageHtml(m) {
       }
       otherTools.push(tool)
     }
-    for (const todos of todoTools) kids.push(renderTodoCard(todos))
-    if (otherTools.length > 0) {
-      kids.push(el('details', { class: 'chat-disclosure' }, [
-        el('summary', { class: 'chat-disclosure-head' }, [
-          el('span', { class: 'chat-disclosure-caret' }, ['›']),
-          el('span', { class: 'chat-disclosure-label' }, ['工具调用']),
-          el('span', { class: 'chat-disclosure-count' }, [`${otherTools.length} 次`]),
-        ]),
-        el('div', { class: 'chat-disclosure-body chat-tools-body' },
-          otherTools.map((tool) => el('div', { class: 'chat-tool-card' }, [
-            el('div', { class: 'chat-tool-pills' }, [el('span', { class: 'chat-tool-pill' }, [tool.name])]),
-            tool.arguments ? el('pre', { class: 'chat-tool-args' }, [tool.arguments]) : null,
-          ]))),
-      ]))
+    const sessId = state.session?.sessionId || ''
+    for (const imgTool of imageTools) kids.push(renderToolImageCard(imgTool, sessId))
+    if (chat.showToolCalls) {
+      for (const todos of todoTools) kids.push(renderTodoCard(todos))
+      if (otherTools.length > 0) {
+        const card = renderToolGroupCard({
+          id: `tool-group-inner-${m.id}`,
+          tools: otherTools,
+          isRunning: m.pending || otherTools.some((t) => t.status === 'running'),
+        })
+        if (card) kids.push(card)
+      }
     }
   }
   if (m.pending) {

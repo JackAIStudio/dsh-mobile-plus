@@ -178,58 +178,6 @@
 }
 
 
-/* ── slash command / skill menu ──────────────────────────────────────── */
-
-.slash-menu {
-  flex: none;
-  max-height: 36vh;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  margin: 0 12px;
-  border: 1px solid var(--m-border);
-  border-radius: var(--m-radius);
-  background: var(--m-bg-raised);
-  box-shadow: var(--m-shadow-raise);
-}
-
-.slash-group {
-  padding: 8px 12px 4px;
-  color: var(--m-text-tertiary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.slash-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.slash-item:active {
-  background: var(--m-accent-soft);
-}
-
-.slash-item-name {
-  font-size: 14px;
-  font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.slash-item-desc {
-  color: var(--m-text-tertiary);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
 /* ── composer toolbar (model / permission chips) ─────────────────────── */
 
 .chat-tools {
@@ -397,24 +345,6 @@
   line-height: 22px;
   cursor: pointer;
 }
-.attach-btn {
-  flex: none;
-  align-self: flex-end;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 1px solid var(--m-border);
-  border-radius: 10px;
-  background: var(--m-bg-raised);
-  color: var(--m-text);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.attach-btn:disabled { opacity: .5; }
-.attach-btn-icon,
-.attach-btn-icon svg { display: block; width: 20px; height: 20px; }
 .attach-input { display: none; }
 .attach-sheet { padding: 0 10px 12px; }
 .attach-sheet-item,

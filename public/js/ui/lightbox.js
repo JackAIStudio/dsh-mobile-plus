@@ -27,7 +27,7 @@ export function closeImageLightbox() {
     }
   }
 
-export function openImageLightbox(src) {
+export function openImageLightbox(src, fullSrc) {
     if (!src) return
     closeImageLightbox()
 
@@ -54,6 +54,16 @@ export function openImageLightbox(src) {
     })
     node.addEventListener('touchmove', (ev) => { ev.preventDefault() }, { passive: false })
     attachLightboxZoom(stage, img)
+    if (fullSrc && fullSrc !== src) {
+      const fullImg = new Image()
+      fullImg.src = fullSrc
+      fullImg.onload = () => {
+        if (runtime.lightboxNode === node) {
+          img.src = fullSrc
+          node.dataset.src = fullSrc
+        }
+      }
+    }
     runtime.lightboxEsc = (ev) => { if (ev.key === 'Escape') closeImageLightbox() }
     document.addEventListener('keydown', runtime.lightboxEsc)
     runtime.lightboxNode = node

@@ -8,6 +8,7 @@ import { triggerTaskDoneNotification } from '../../utils/notify.js'
 import { commitLocation } from '../../state/route.js'
 import { render } from './render.js'
 import { loadWorkspaces } from './ws-view.js'
+import { fetchPins } from '../../net/pins.js'
 
 export const SESSION_PAGE = 30
 export const LIST_POLL_MS = 25_000
@@ -103,7 +104,10 @@ export async function loadSessions() {
     if (state.view === 'sessions') render()
   }
   try {
-    const workspaces = await call('workspace.list', {})
+    const [workspaces] = await Promise.all([
+      call('workspace.list', {}),
+      fetchPins(),
+    ])
     if (q !== runtime.sessionsQuery) return
     const fresh = (workspaces.items || []).find((w) => w.workspaceId === workspaceId)
     const current = fresh || state.workspace
@@ -179,12 +183,11 @@ export async function refreshLiveSnapshot() {
       if (fresh) state.workspace = fresh
     }
     const before = sessionStatusKey(state.sessions)
+    void fetchPins()
     const page = await collectOwnedPages(workspaceId, ownedSessionIds(state.workspace), undefined, [], listedAt)
     if (token !== runtime.liveQuery) return false
+    for (const item of page.items) hydrateSessionLive(item, listedAt)
     if (state.view === 'sessions') mergeSessionsFromSnapshot(page.items)
-    else {
-      for (const item of page.items) hydrateSessionLive(item, listedAt)
-    }
     let changed = before !== sessionStatusKey(state.view === 'sessions' ? state.sessions : page.items)
     if (state.view === 'chat' && state.session) {
       const row = runtime.sessionLive.get(state.session.sessionId)
@@ -200,20 +203,39 @@ export async function refreshLiveSnapshot() {
     return changed
   } catch {
     return false
+  } finally {
+    if (runtime.listPollTimer !== null) scheduleNextListPoll()
   }
 }
 
 export function startListPoll() {
   if (runtime.listPollTimer !== null) return
-  runtime.listPollTimer = setInterval(() => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-    void refreshLiveSnapshot()
-  }, LIST_POLL_MS)
+  scheduleNextListPoll()
+}
+
+export function scheduleNextListPoll() {
+  if (runtime.listPollTimer !== null) {
+    clearTimeout(runtime.listPollTimer)
+    runtime.listPollTimer = null
+  }
+  let hasRunning = state.running === true
+  if (!hasRunning) {
+    for (const row of runtime.sessionLive.values()) {
+      if (row?.running) { hasRunning = true; break }
+    }
+  }
+  const delay = hasRunning ? 3000 : LIST_POLL_MS
+  runtime.listPollTimer = setTimeout(async () => {
+    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+      await refreshLiveSnapshot()
+    }
+    scheduleNextListPoll()
+  }, delay)
 }
 
 export function stopListPoll() {
   if (runtime.listPollTimer !== null) {
-    clearInterval(runtime.listPollTimer)
+    clearTimeout(runtime.listPollTimer)
     runtime.listPollTimer = null
   }
 }

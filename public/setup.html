@@ -156,7 +156,14 @@
   }
   .address-hint, .note { margin: 6px 0 0; color: var(--label-tertiary); font-size: 12px; }
   .note { margin: 0; line-height: 18px; }
-  .actions { display: flex; gap: 8px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .relay-box { width: 100%; box-sizing: border-box; margin-top: 8px; padding: 12px; border: 1px solid var(--border-l2); border-radius: 12px; background: var(--bg-layer-1); display: flex; flex-direction: column; gap: 8px; }
+  .relay-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border-l2); padding-bottom: 6px; }
+  .relay-tab { padding: 3px 8px; border-radius: 6px; border: none; background: transparent; color: var(--label-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
+  .relay-tab.active { background: var(--hover); color: var(--brand); }
+  .relay-input { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border-l2); background: var(--bg-base); color: var(--label-primary); font-size: 12px; font-family: var(--mono); }
+  .relay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .relay-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .devices {
     display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 14px;
     border: 1px solid var(--border-l2); border-radius: 16px; background: var(--bg-layer-1);
@@ -244,6 +251,36 @@
   <div class="actions">
     <button id="stop" type="button" class="action" disabled>停止</button>
     <button id="refresh" type="button" class="action">刷新二维码</button>
+    <button id="btn-relay-toggle" type="button" class="action">🌐 公网中转配置</button>
+  </div>
+
+  <div id="relay-box" class="relay-box" hidden>
+    <div class="relay-tabs">
+      <button id="tab-btn-token" type="button" class="relay-tab active">📋 导入中转口令</button>
+      <button id="tab-btn-ssh" type="button" class="relay-tab">🚀 全新ECS一键部署</button>
+    </div>
+    <div id="relay-panel-token" style="display:flex; flex-direction:column; gap:6px;">
+      <input id="relay-token-input" class="relay-input" placeholder="粘贴中转口令 (jds://relay?...)" />
+      <div class="relay-actions">
+        <button id="btn-paste-clip" type="button" class="action" style="height:28px; font-size:12px;">从剪贴板粘贴</button>
+        <button id="btn-import-token" type="button" class="action" style="height:28px; font-size:12px;">立即导入并连接</button>
+        <button id="btn-copy-current" type="button" class="action" style="height:28px; font-size:12px;">复制当前口令</button>
+      </div>
+    </div>
+    <div id="relay-panel-ssh" style="display:none; flex-direction:column; gap:6px;">
+      <div class="relay-grid">
+        <input id="ssh-host" class="relay-input" placeholder="服务器 IP (如 47.xx.xx.xx)" />
+        <input id="ssh-port" class="relay-input" placeholder="SSH 端口 (默认 22)" value="22" />
+      </div>
+      <div class="relay-grid">
+        <input id="ssh-pass" class="relay-input" type="password" placeholder="SSH root 密码" />
+        <input id="ssh-domain" class="relay-input" placeholder="自定义域名 (选填)" />
+      </div>
+      <div class="relay-actions">
+        <button id="btn-provision" type="button" class="action" style="height:28px; font-size:12px;">一键全自动部署中转服务</button>
+      </div>
+    </div>
+    <div id="relay-msg" style="font-size:12px;" hidden></div>
   </div>
 
   <section class="devices" aria-label="已授权设备">
@@ -423,6 +460,98 @@
     stoppedHint.hidden = false
     if (pairCodeVal) pairCodeVal.textContent = '------'
     poll()
+  }
+
+  const btnRelayToggle = $('btn-relay-toggle'), relayBox = $('relay-box')
+  const tabBtnToken = $('tab-btn-token'), tabBtnSsh = $('tab-btn-ssh')
+  const panelToken = $('relay-panel-token'), panelSsh = $('relay-panel-ssh')
+  const relayTokenInput = $('relay-token-input'), relayMsg = $('relay-msg')
+
+  btnRelayToggle.onclick = () => { relayBox.hidden = !relayBox.hidden }
+  tabBtnToken.onclick = () => {
+    tabBtnToken.classList.add('active'); tabBtnSsh.classList.remove('active')
+    panelToken.style.display = 'flex'; panelSsh.style.display = 'none'
+    relayMsg.hidden = true
+  }
+  tabBtnSsh.onclick = () => {
+    tabBtnSsh.classList.add('active'); tabBtnToken.classList.remove('active')
+    panelSsh.style.display = 'flex'; panelToken.style.display = 'none'
+    relayMsg.hidden = true
+  }
+
+  $('btn-paste-clip').onclick = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) relayTokenInput.value = text.trim()
+    } catch {}
+  }
+
+  $('btn-import-token').onclick = async () => {
+    const token = relayTokenInput.value.trim()
+    if (!token) return
+    relayMsg.hidden = false; relayMsg.textContent = '正在导入中转配置...'
+    relayMsg.style.color = 'var(--label-primary)'
+    try {
+      const res = await fetch('/mp/relay/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tokenStr: token })
+      })
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.error || '导入失败')
+      relayMsg.textContent = '✔ 中转配置已生效！'
+      relayMsg.style.color = 'var(--brand)'
+      mint()
+    } catch (err) {
+      relayMsg.textContent = '❌ ' + err.message
+      relayMsg.style.color = 'var(--error)'
+    }
+  }
+
+  $('btn-copy-current').onclick = async () => {
+    try {
+      const res = await fetch('/mp/relay/config')
+      const data = await res.json()
+      if (data.tokenStr) {
+        await navigator.clipboard.writeText(data.tokenStr)
+        relayMsg.hidden = false; relayMsg.textContent = '✔ 已复制当前中转口令！'
+        relayMsg.style.color = 'var(--brand)'
+      } else {
+        relayMsg.hidden = false; relayMsg.textContent = '⚠️ 当前尚未配置公网中转'
+        relayMsg.style.color = 'var(--warn)'
+      }
+    } catch (err) {
+      relayMsg.hidden = false; relayMsg.textContent = '❌ ' + err.message
+      relayMsg.style.color = 'var(--error)'
+    }
+  }
+
+  $('btn-provision').onclick = async () => {
+    const host = $('ssh-host').value.trim()
+    const port = $('ssh-port').value.trim() || '22'
+    const password = $('ssh-pass').value
+    const domain = $('ssh-domain').value.trim()
+    if (!host || !password) {
+      relayMsg.hidden = false; relayMsg.textContent = '❌ 服务器 IP 和密码不能为空'
+      relayMsg.style.color = 'var(--error)'; return
+    }
+    relayMsg.hidden = false; relayMsg.textContent = '正在连接服务器并自动化部署 (通常需 20~30 秒)...'
+    relayMsg.style.color = 'var(--label-primary)'
+    try {
+      const res = await fetch('/mp/relay/provision', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ host, port, password, domain })
+      })
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.error || '部署失败')
+      relayMsg.textContent = '🎉 云端全自动部署成功！中转服务已就绪'
+      relayMsg.style.color = 'var(--brand)'
+      mint()
+    } catch (err) {
+      relayMsg.textContent = '❌ ' + err.message
+      relayMsg.style.color = 'var(--error)'
+    }
   }
 
   mint()

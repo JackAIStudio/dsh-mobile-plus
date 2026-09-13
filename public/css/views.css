@@ -95,6 +95,41 @@ html[data-keyboard='1'] .mobile-pair .pair-logo {
   width: 100%;
 }
 
+.mobile-pairRefresh {
+  width: 100%;
+}
+
+.mobile-pairReloadBtn {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: 16px;
+  z-index: 20;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--m-border);
+  border-radius: 50%;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  box-shadow: var(--m-shadow-raise);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+.mobile-pairReloadBtn:active {
+  transform: scale(0.92);
+  background: var(--m-border);
+}
+
+.mobile-pairReloadBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--m-bg), 0 0 0 4px var(--m-accent);
+}
+
 /* ── directory browser ─────────────────────────────────────────────── */
 
 .dir-browser {

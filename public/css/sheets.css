@@ -212,65 +212,6 @@
   padding: 4px 2px;
 }
 
-.chat-inputbar {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px calc(var(--m-kb-bottom) + 10px);
-  border-top: 1px solid var(--m-border);
-  background: var(--m-bg);
-}
-
-.chat-input {
-  flex: 1;
-  min-width: 0;
-  min-height: 40px;
-  max-height: 120px;
-  /* Grow with the content (still bounded by min/max-height); browsers
-     without field-sizing support ignore this line and keep the old size. */
-  field-sizing: content;
-  overflow-y: auto;
-  padding: 9px 12px;
-  border: 1px solid var(--m-border);
-  border-radius: 10px;
-  background: var(--m-bg-input);
-  color: var(--m-text);
-  font: inherit;
-  font-size: 14.5px;
-  resize: none;
-  outline: none;
-  caret-color: var(--m-text);
-}
-
-.chat-input:focus {
-  border-color: var(--m-accent);
-}
-
-.chat-send {
-  flex: none;
-  align-self: flex-end;
-  height: 40px;
-  padding: 0 16px;
-  border: none;
-  border-radius: 10px;
-  background: var(--m-accent);
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.chat-send:disabled {
-  opacity: 0.5;
-}
-
-/* Running state: the primary button carries only the square stop icon, so
-   it centers the glyph instead of sizing to text. */
-.chat-send-stop {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  padding: 0 12px;
-}
 
 .chat-load-older {
   align-self: center;

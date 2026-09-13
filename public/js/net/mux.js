@@ -9,6 +9,7 @@ import { foldEvents, applySessionTitle, isRecord, toWireEvent } from '../chat/fo
 import { applyContextPressure, absorbContextEvent } from '../chat/context-usage.js'
 import { syncSheetPortal } from '../ui/sheets/portal.js'
 import { applyTodosLiveEvent, isStandingTodoEvent, applyTodosProjection } from '../ui/todo.js'
+import { applyGoalProjection, applyGoalChangeEvent } from '../chat/goal.js'
 import { applySessionLive, applyPendingFrame, ensureLive } from './pending.js'
 import { dropOutboxEcho, reconcileOutbox } from '../chat/outbox.js'
 import { refreshLiveSnapshot } from '../ui/views/session-view.js'
@@ -105,8 +106,7 @@ export class MuxClient {
         this.stopPolling()
         return
       }
-      // If SSE is already stalled for this session, start patching right away.
-      if (!this.polling && !this.stopped && this.isSseStalled()) this.startPolling()
+      if (!this.polling && !this.stopped && (!this.sseAlive || this.isSseStalled())) this.startPolling()
     }
 
     connect() {
@@ -210,12 +210,18 @@ export class MuxClient {
       let emitted = 0
       try {
         const page = await this.pollLatest(sessionId)
+        const hasWatermark = this.pollWatermark.has(sessionId)
         let maxSeq = this.pollWatermark.get(sessionId) ?? -1
         const ordered = [...page.events].sort((left, right) => {
           const leftSeq = typeof toWireEvent(left)?.seq === 'number' ? toWireEvent(left).seq : -1
           const rightSeq = typeof toWireEvent(right)?.seq === 'number' ? toWireEvent(right).seq : -1
           return leftSeq - rightSeq
         })
+        if (!hasWatermark) {
+          const top = ordered.length ? (typeof toWireEvent(ordered[ordered.length - 1])?.seq === 'number' ? toWireEvent(ordered[ordered.length - 1]).seq : 0) : 0
+          this.pollWatermark.set(sessionId, top)
+          return
+        }
         for (const entry of ordered) {
           const ev = toWireEvent(entry)
           const seq = typeof ev?.seq === 'number' ? ev.seq : -1
@@ -247,6 +253,16 @@ export class MuxClient {
             seq: typeof page.projections.asOfSeq === 'number' ? page.projections.asOfSeq : maxSeq,
           })
         }
+        const projectedGoal = page.projections?.values?.goal
+        if (projectedGoal !== undefined) {
+          this.emit({
+            type: 'session/projection',
+            sessionId,
+            key: 'goal',
+            value: projectedGoal,
+            seq: typeof page.projections.asOfSeq === 'number' ? page.projections.asOfSeq : maxSeq,
+          })
+        }
         // Todos ride turn/start + todo/write events (standing-plan lifetime).
         // Do not re-emit the history-tail projection here: its asOfSeq is the
         // log head, which would stamp an unchanged list with a high seq and
@@ -254,7 +270,7 @@ export class MuxClient {
       } catch {
         // Transient (network, pairing, history paging); retry with backoff.
       } finally {
-        if (emitted > 0) {
+        if (emitted > 0 || state.running || runtime.sessionLive.get(sessionId)?.running) {
           this.pollDelayMs = this.pollIntervalMs
         } else {
           this.pollDelayMs = Math.min(60000, this.pollDelayMs + this.pollIntervalMs)
@@ -273,9 +289,7 @@ export class MuxClient {
     handleMessage(data) {
       const frame = parseLiveFrame(data)
       if (!frame) return
-      // A delivered frame proves the SSE channel is live (the tunnel forwards
-      // it) and delivers again — drop any fallback polling so the live stream
-      // takes over without double delivery.
+      if (frame.type === 'ready' && frame.clientId === 'mp-fallback') return
       this.sseAlive = true
       this.lastDataAt = this.now()
       if (this.polling) this.stopPolling()
@@ -377,9 +391,7 @@ export class HostClient {
 
 export async function ensureMux() {
     if (runtime.mux !== null) return
-    runtime.mux = new MuxClient('/mp/api/events.mux', {
-      pollLatest: (sessionId) => call('session.history', { sessionId, maxMessages: 50 }),
-    })
+    runtime.mux = new MuxClient('/mp/api/events.mux', { pollLatest: (sessionId) => call('session.history', { sessionId, maxMessages: 50 }) })
     runtime.mux.onFrame(handleMuxFrame)
     runtime.mux.start()
   }
@@ -394,11 +406,11 @@ export async function ensureHost() {
 export function handleMuxFrame(frame) {
     const pendingChanged = applyPendingFrame(frame)
     if (pendingChanged && state.view === 'chat') render()
-    const liveBefore = typeof frame?.sessionId === 'string' ? runtime.sessionLive.get(frame.sessionId) : undefined
+    const hadRunning = typeof frame?.sessionId === 'string'
+      && (runtime.sessionLive.get(frame.sessionId)?.running === true || (frame.sessionId === state.session?.sessionId && state.running === true))
     const statusChanged = applySessionLive(frame)
-    // Any session (mobile-open or PC-side) finishing triggers the chime +
-    // notification; notify.js dedupes the overlapping trigger paths.
-    notifyIfCompleted(frame, liveBefore?.running === true)
+    // Any session (mobile-open or PC-side) finishing triggers chime + notification; notify.js dedupes.
+    notifyIfCompleted(frame, hadRunning)
     if (frame?.type === 'host/session-status' && typeof frame.sessionId === 'string') {
       if (frame.sessionId === state.session?.sessionId) {
         const next = frame.running === true
@@ -416,13 +428,7 @@ export function handleMuxFrame(frame) {
       return
     }
     if (frame && typeof frame.type === 'string' && frame.type.startsWith('host/')) {
-      if (
-        frame.type === 'host/session-added'
-        || frame.type === 'host/session-removed'
-        || frame.type === 'host/workspace-changed'
-        || frame.type === 'host/workspace-removed'
-        || frame.type === 'host/workspace-order-changed'
-      ) {
+      if (['host/session-added', 'host/session-removed', 'host/workspace-changed', 'host/workspace-removed', 'host/workspace-order-changed'].includes(frame.type)) {
         void refreshLiveSnapshot()
       }
       return
@@ -436,6 +442,12 @@ export function handleMuxFrame(frame) {
       }
       if (frame.key === 'todos') {
         if (applyTodosProjection(frame.sessionId, frame.value, frame.seq) && state.view === 'chat') {
+          render()
+        }
+        return
+      }
+      if (frame.key === 'goal') {
+        if (applyGoalProjection(frame.sessionId, frame.value, frame.seq) && state.view === 'chat') {
           render()
         }
         return
@@ -468,8 +480,12 @@ export function handleMuxFrame(frame) {
     const turnMarker = ev.type === 'turn/start' || ev.type === 'turn/end'
     if (ev.type === 'turn/start') state.running = true
     if (ev.type === 'turn/end') {
+      const wasRunning = state.running
       state.running = false
       void loadQuota(true)
+      const evTime = ev.time || frame.time
+      const isFresh = typeof evTime !== 'number' || evTime <= 0 || (Date.now() - evTime) <= 15_000
+      if (wasRunning && isFresh) triggerTaskDoneNotification(state.session?.title || '会话', frame.sessionId)
     }
     if (chat.tailLoading) {
       if (chat.liveBuffer.length >= 500) {
@@ -477,17 +493,21 @@ export function handleMuxFrame(frame) {
         chat.overflow = true
       }
       chat.liveBuffer.push(ev)
-      if (absorbContextEvent(ev) && state.sheet === 'settings') syncSheetPortal(true)
+      if (absorbContextEvent(ev)) {
+        if (state.view === 'chat') render()
+        if (state.sheet === 'settings') syncSheetPortal(true)
+      }
       return
     }
     if (!chat.folder) return
     const pressureChanged = absorbContextEvent(ev)
     const next = chat.folder.fold([ev])
     const todosChanged = applyTodosLiveEvent(frame.sessionId, ev)
+    const goalChanged = applyGoalChangeEvent(frame.sessionId, ev)
     const messagesChanged = next !== chat.messages
     if (messagesChanged) chat.messages = next
-    const outboxChanged = ev.type === 'user/message' && reconcileOutbox(frame.sessionId)
-    if (messagesChanged || turnMarker || todosChanged || outboxChanged) render()
+    const outboxChanged = (ev.type === 'user/message' || ev.type === 'command/run') && reconcileOutbox(frame.sessionId)
+    if (messagesChanged || turnMarker || todosChanged || goalChanged || outboxChanged || pressureChanged) render()
     if (pressureChanged && state.sheet === 'settings') syncSheetPortal(true)
   }
 

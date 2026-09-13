@@ -7,8 +7,12 @@ import { call } from '../../net/rpc.js'
 import { commitLocation, navBack, persistRoute } from '../../state/route.js'
 import { EventFolder, foldEvents, toWireEvent, seedSessionTitleFromPage, sessionTitle } from '../../chat/fold.js'
 import { resetContextPressure, seedContextPressureFromPage } from '../../chat/context-usage.js'
-import { seedTodosFromPage, renderTodoDock, applyTodoEventsAfter, standingTodos, todoWatermark } from '../todo.js'
+import { seedTodosFromPage, renderTodoDock, renderTodoCard, applyTodoEventsAfter, standingTodos, todoWatermark } from '../todo.js'
+import { renderGoalDock } from '../goal.js'
+import { seedGoalFromPage, standingGoal, goalWatermark } from '../../chat/goal.js'
 import { messageHtml, isHiddenSystemMessage } from '../message.js'
+import { groupConversationItems, renderToolGroupCard } from '../tool-group.js'
+import { renderToolImageCard } from '../../chat/tool-image.js'
 import { renderApprovalPanel, renderQuestionPanel } from '../../chat/approvals.js'
 import { clearAttachments, renderComposerAttachments } from '../../chat/upload.js'
 import { renderSlashMenu, loadSlashCatalog } from '../../chat/slash.js'
@@ -19,6 +23,7 @@ import { captureChatScroll, applyChatScroll, captureTodoScroll, applyTodoScroll,
 import { renderChatHeader } from './chat-header.js'
 import { stopMuxObservation, ensureMux } from '../../net/mux.js'
 import { rememberCatalog } from '../sheets/model-catalog.js'
+import { showToast } from '../../utils/toast.js'
 import { syncSheetPortal } from '../sheets/portal.js'
 import { openTimelineSheet } from '../sheets/timeline-sheet.js'
 import { deriveTurns, renderTurnDivider } from '../../chat/timeline.js'
@@ -36,7 +41,7 @@ export async function loadTail() {
     chat.messages = []
     render()
     try {
-      const page = await call('session.history', { sessionId: sid, maxMessages: 30 })
+      const page = await call('session.history', { sessionId: sid, maxMessages: 50 })
       if (state.session?.sessionId !== sid) return
       // Buffered live events re-fold on top of the snapshot; the watermark
       // drops any the snapshot already includes, so nothing is lost or doubled.
@@ -47,7 +52,12 @@ export async function loadTail() {
       chat.folder = folder
       chat.messages = folder.fold(buffered)
       chat.hasOlder = Boolean(page.hasMore)
+      if (runtime.mux) {
+        const topSeq = typeof folder.maxSeq === 'function' ? folder.maxSeq() : undefined
+        if (typeof topSeq === 'number') runtime.mux.pollWatermark.set(sid, topSeq)
+      }
       seedTodosFromPage(sid, page, buffered)
+      seedGoalFromPage(sid, page, buffered)
       seedSessionTitleFromPage(sid, page)
       seedContextPressureFromPage(sid, page, buffered)
       reconcileOutbox(sid)
@@ -59,10 +69,11 @@ export async function loadTail() {
       if (chat.overflow) {
         chat.overflow = false
         try {
-          const fresh = await call('session.history', { sessionId: sid, maxMessages: 30 })
+          const fresh = await call('session.history', { sessionId: sid, maxMessages: 50 })
           if (state.session?.sessionId !== sid) return
           chat.messages = folder.fold((fresh.events || []).map(toWireEvent))
           seedTodosFromPage(sid, fresh)
+          seedGoalFromPage(sid, fresh)
           seedSessionTitleFromPage(sid, fresh)
           seedContextPressureFromPage(sid, fresh)
           reconcileOutbox(sid)
@@ -89,26 +100,33 @@ export async function loadTail() {
 
 export async function loadOlder() {
     const oldest = chat.messages[0]
-    if (!oldest) return
+    if (!oldest || chat.loadingOlder) return
+    chat.loadingOlder = true
+    render()
     try {
       const page = await call('session.history', {
         sessionId: state.session.sessionId,
-        maxMessages: 30,
+        maxMessages: 50,
         beforeSeq: Math.max(1, oldest.seq - 1),
       })
       const existing = document.querySelector('.chat-scroll')
+      const wasNearTop = !existing || existing.scrollTop <= 80
       runtime.prependAdjust = existing
-        ? { height: existing.scrollHeight, top: existing.scrollTop }
+        ? { height: existing.scrollHeight, top: existing.scrollTop, wasNearTop }
         : null
       runtime.chatScroll.stick = false
       const olderMsgs = foldEvents((page.events || []).map(toWireEvent))
+      const added = olderMsgs.length
       chat.folder.prepend(olderMsgs)
       chat.messages = chat.folder.snapshot()
       chat.hasOlder = Boolean(page.hasMore)
-      render()
+      if (added > 0) showToast(`已加载 ${added} 条更早消息`)
+      else showToast('已没有更早的消息了')
     } catch (err) {
       runtime.prependAdjust = null
       state.error = String(err.message || err)
+    } finally {
+      chat.loadingOlder = false
       render()
     }
   }
@@ -127,9 +145,12 @@ export async function openChat(session, opts = {}) {
     runtime.todoScroll.top = 0
     runtime.todoScroll.stick = true
     todoWatermark.delete(session.sessionId)
+    goalWatermark.delete(session.sessionId)
     resetContextPressure(session.sessionId)
     seedContextPressureFromPage(session.sessionId, { projections: session.projections })
     chat.todos = null
+    chat.goal = null
+    seedGoalFromPage(session.sessionId, { projections: session.projections })
     chat.approvals = []
     chat.questions = []
     const initialModel = session?.projections?.values?.modelSelection?.next
@@ -159,7 +180,7 @@ export async function openChat(session, opts = {}) {
       if (state.view === 'chat') render()
       if (state.sheet === 'settings' || state.sheet === 'model') syncSheetPortal(true)
     }).catch(() => { /* settings row falls back to a plain label */ })
-    void loadSlashCatalog(session.sessionId)
+    void loadSlashCatalog(session?.sessionId, session?.cwd)
     startPendingPoll()
     // loadTail 内部完成时会 render（贴底 rAF 指向它构建的 scroller）；
     // 这里不能再 render 一次——那会让上一个 rAF 失效并恢复 prevTop=0（Bug #1042）
@@ -178,7 +199,10 @@ export function renderChatParts() {
 
     const scroller = el('div', { class: 'chat-scroll', onscroll: onChatScroll })
     if (chat.hasOlder) {
-      scroller.append(el('button', { type: 'button', class: 'chat-load-older', onclick: () => void loadOlder() }, ['加载更早消息']))
+      const olderBtn = chat.loadingOlder
+        ? el('button', { type: 'button', class: 'chat-load-older is-loading', disabled: true }, ['正在加载更早消息…'])
+        : el('button', { type: 'button', class: 'chat-load-older', onclick: () => void loadOlder() }, ['加载更早消息'])
+      scroller.append(olderBtn)
     }
     if (chat.loading && chat.messages.length === 0 && localPending.length === 0) {
       scroller.append(el('div', { class: 'chat-typing' }, ['加载中…']))
@@ -191,14 +215,31 @@ export function renderChatParts() {
 
     let visible = 0
     const allMsgs = [...chat.messages, ...localPending]
-    for (const m of allMsgs) {
-      if (isHiddenSystemMessage(m)) continue
+    const nonSystem = allMsgs.filter((m) => !isHiddenSystemMessage(m))
+    const groupedItems = groupConversationItems(nonSystem)
+
+    for (const item of groupedItems) {
       visible += 1
-      const turn = turnByFirstMsgId.get(m.id)
-      if (turn) scroller.append(renderTurnDivider(turn, openTimelineSheet))
-      const node = messageHtml(m)
-      node.id = m.id
-      scroller.append(node)
+      if (item.kind === 'message') {
+        const turn = turnByFirstMsgId.get(item.message.id)
+        if (turn) scroller.append(renderTurnDivider(turn, openTimelineSheet))
+        const node = messageHtml(item.message)
+        node.id = item.message.id
+        scroller.append(node)
+      } else if (item.kind === 'tool-group') {
+        const card = renderToolGroupCard(item.group)
+        if (card) scroller.append(card)
+      } else if (item.kind === 'image-tool') {
+        const sessId = state.session?.sessionId || ''
+        const card = renderToolImageCard(item.tool, sessId)
+        if (card) {
+          card.id = item.id
+          scroller.append(card)
+        }
+      } else if (item.kind === 'todo') {
+        const card = renderTodoCard(item.todos)
+        if (card) scroller.append(card)
+      }
     }
     if (visible === 0 && !chat.loading) {
       scroller.append(el('div', { class: 'chat-typing' }, ['还没有消息，发一句试试']))
@@ -215,13 +256,14 @@ export function renderChatParts() {
       ]) : null,
       scroller,
       todos: renderTodoDock(standingTodos()),
+      goal: renderGoalDock(standingGoal()),
       pics: renderComposerAttachments(),
       slash: renderSlashMenu(),
     }
   }
 
 export function chatAboveBar(parts) {
-    return [parts.header, parts.error, parts.status, parts.scroller, parts.todos, parts.pics, parts.slash].filter(Boolean)
+    return [parts.header, parts.error, parts.status, parts.scroller, parts.todos, parts.goal, parts.pics, parts.slash].filter(Boolean)
   }
 
 export function applyChatPage() {

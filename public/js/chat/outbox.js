@@ -7,6 +7,7 @@ import { nudgeMux } from '../net/mux.js'
 import { isRecord, imagesFromContent, textFromContent, pickString } from './fold.js'
 import { parseSlashLine } from './slash.js'
 import { clearAttachments, ensureUpload, parseInboxDelivery, isImageAttachment } from './upload.js'
+import { unlockAudio } from '../utils/notify.js'
 import { setDraft, focusComposer } from './composer.js'
 import { render } from '../ui/views/render.js'
 
@@ -109,6 +110,7 @@ export async function retryOutbox(item) {
   }
 
 export async function send() {
+    unlockAudio()
     const text = state.draft.trim()
     const pending = state.attachments.slice()
     if ((text === '' && pending.length === 0) || !state.session) return
@@ -127,16 +129,37 @@ export async function send() {
         const inList = (state.sessions || []).find((s) => s.sessionId === state.session.sessionId)
         if (inList) inList.blank = false
       }
+      const last = chat.messages[chat.messages.length - 1]
+      const item = {
+        id: `local:${rpcId()}`,
+        kind: 'user',
+        text,
+        isCommand: true,
+        commandName: parsed.name,
+        time: Date.now(),
+        local: true,
+        localStatus: 'sending',
+        sessionId: state.session.sessionId,
+        afterSeq: last && typeof last.seq === 'number' ? last.seq : -1,
+      }
+      chat.outbox.push(item)
       render()
       focusComposer()
       try {
         const result = await call('command.execute', { sessionId: state.session.sessionId, line: text })
         const outcome = result && result.result
         if (outcome && outcome.kind === 'error' && outcome.text) {
+          item.localStatus = 'failed'
+          item.failed = true
           state.error = outcome.text
           if (state.draft === '' && state.attachments.length === 0) setDraft(text)
+        } else {
+          item.localStatus = 'sent'
+          nudgeMux(state.session.sessionId)
         }
       } catch (err) {
+        item.localStatus = 'failed'
+        item.failed = true
         state.error = String(err.message || err)
         if (state.draft === '' && state.attachments.length === 0) setDraft(text)
       } finally {

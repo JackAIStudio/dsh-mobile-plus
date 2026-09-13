@@ -6,6 +6,7 @@ import { el } from '../utils/dom.js'
 import { send, stopTurn } from './outbox.js'
 import { pickFromFiles } from './upload.js'
 import { renderSlashMenu } from './slash.js'
+import { contextUsage } from './context-usage.js'
 import { render } from '../ui/views/render.js'
 
 export function autosizeInput(node) {
@@ -76,6 +77,55 @@ export function makeSendButton() {
       : el('button', { type: 'button', class: 'chat-send', disabled: state.sending, onclick: () => void send() }, [state.sending ? '发送中…' : '发送'])
   }
 
+export function makeContextUsageButton() {
+    const pct = contextUsage()
+    const hasPct = pct !== undefined
+    const isWarn = hasPct && pct >= 80
+    const isDanger = hasPct && pct >= 95
+    const pctClass = isDanger ? ' is-danger' : (isWarn ? ' is-warn' : '')
+    const pctDisplay = hasPct ? `${pct}%` : '—'
+    const isCompact = hasPct && pct >= 100
+    const isEmpty = !hasPct
+
+    const radius = 12
+    const circumference = 75.4
+    const offset = hasPct
+      ? Math.max(0, circumference - (circumference * Math.min(100, pct)) / 100)
+      : circumference
+
+    const title = hasPct
+      ? `上下文占用 ${pct}% (点击查看详情)`
+      : '上下文占用情况 (点击查看详情)'
+
+    return el('button', {
+      type: 'button',
+      class: `context-usage-btn${pctClass}`,
+      'data-pct': hasPct ? String(pct) : 'none',
+      'aria-label': hasPct ? `上下文已占用 ${pct}%，点击查看详情` : '上下文占用情况，点击查看详情',
+      title,
+      onclick: (ev) => {
+        ev.preventDefault()
+        state.sheetReturn = null
+        state.sheet = state.sheet === 'settings' ? null : 'settings'
+        render()
+      },
+    }, [
+      el('span', {
+        class: 'context-usage-ring',
+        'aria-hidden': 'true',
+        html: `<svg viewBox="0 0 32 32" class="context-usage-svg">
+          <circle cx="16" cy="16" r="${radius}" class="ctx-ring-bg" />
+          <circle cx="16" cy="16" r="${radius}" class="ctx-ring-meter" style="stroke-dasharray:${circumference};stroke-dashoffset:${offset.toFixed(1)}" />
+          <text x="16" y="16" class="ctx-ring-text${isCompact ? ' is-compact' : ''}${isEmpty ? ' is-empty' : ''}">${pctDisplay}</text>
+        </svg>`,
+      }),
+    ])
+  }
+
+export function makeSlashButton() {
+    return makeContextUsageButton()
+  }
+
 export function makeAttachButton() {
     return el('button', {
       type: 'button',
@@ -94,14 +144,28 @@ export function makeAttachButton() {
 
 export function buildInputbar() {
     return el('div', { class: 'chat-inputbar' }, [
-      ensureComposer(),
-      makeAttachButton(),
-      makeSendButton(),
+      el('div', { class: 'chat-input-main' }, [
+        ensureComposer(),
+      ]),
+      el('div', { class: 'chat-input-tools' }, [
+        el('div', { class: 'chat-input-tools-left' }, [
+          makeContextUsageButton(),
+          makeAttachButton(),
+        ]),
+        el('div', { class: 'chat-input-tools-right' }, [
+          makeSendButton(),
+        ]),
+      ]),
     ])
   }
 
 export function syncInputbar(bar) {
     if (!bar) return
+    if (!bar.querySelector('.chat-input-tools')) {
+      const fresh = buildInputbar()
+      bar.replaceWith(fresh)
+      return
+    }
     const send = makeSendButton()
     const oldSend = bar.querySelector('.chat-send')
     if (
@@ -111,9 +175,29 @@ export function syncInputbar(bar) {
       || oldSend.textContent !== send.textContent
     ) {
       if (oldSend) oldSend.replaceWith(send)
-      else bar.append(send)
+      else {
+        const right = bar.querySelector('.chat-input-tools-right')
+        if (right) right.append(send)
+        else bar.append(send)
+      }
     }
     syncComposerDraft(ensureComposer(), state.draft, false)
+
+    const ctxBtn = makeContextUsageButton()
+    const oldCtxBtn = bar.querySelector('.context-usage-btn') || bar.querySelector('.slash-trigger-btn')
+    if (
+      !oldCtxBtn
+      || oldCtxBtn.className !== ctxBtn.className
+      || oldCtxBtn.dataset.pct !== ctxBtn.dataset.pct
+    ) {
+      if (oldCtxBtn) oldCtxBtn.replaceWith(ctxBtn)
+      else {
+        const left = bar.querySelector('.chat-input-tools-left')
+        if (left) left.prepend(ctxBtn)
+        else bar.prepend(ctxBtn)
+      }
+    }
+
     const attach = makeAttachButton()
     const oldAttach = bar.querySelector('.attach-btn')
     if (
@@ -123,7 +207,11 @@ export function syncInputbar(bar) {
       || oldAttach.getAttribute('aria-expanded') !== attach.getAttribute('aria-expanded')
     ) {
       if (oldAttach) oldAttach.replaceWith(attach)
-      else bar.insertBefore(attach, bar.querySelector('.chat-send'))
+      else {
+        const left = bar.querySelector('.chat-input-tools-left')
+        if (left) left.append(attach)
+        else bar.append(attach)
+      }
     }
   }
 

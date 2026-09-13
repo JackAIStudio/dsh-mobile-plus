@@ -1,0 +1,112 @@
+/**
+ * Context usage meter widget styles for chat composer inputbar.
+ */
+
+.context-usage-btn {
+  flex: none;
+  align-self: flex-end;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.context-usage-btn:active {
+  background: var(--m-bg-input);
+  transform: scale(0.96);
+}
+
+.context-usage-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.context-usage-svg {
+  width: 32px;
+  height: 32px;
+  overflow: visible;
+}
+
+.ctx-ring-bg {
+  fill: none;
+  stroke: var(--m-border);
+  stroke-width: 2.2;
+}
+
+.ctx-ring-meter {
+  fill: none;
+  stroke: var(--m-accent);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 16px 16px;
+  transition: stroke-dashoffset 0.25s ease, stroke 0.2s ease;
+}
+
+.ctx-ring-text {
+  text-anchor: middle;
+  dominant-baseline: central;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, -apple-system, sans-serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  fill: var(--m-text);
+  letter-spacing: -0.2px;
+}
+
+.ctx-ring-text.is-compact {
+  font-size: 7.5px;
+  letter-spacing: -0.4px;
+}
+
+.ctx-ring-text.is-empty {
+  font-size: 11px;
+  font-weight: 500;
+  fill: var(--m-text-tertiary);
+}
+
+/* ── Warning state (>= 80%) ────────────────────────────────────────────── */
+
+.context-usage-btn.is-warn {
+  border-color: var(--m-warning);
+  border-color: color-mix(in srgb, var(--m-warning) 50%, var(--m-border));
+  background: var(--m-bg-raised);
+  background: color-mix(in srgb, var(--m-warning) 8%, var(--m-bg-raised));
+}
+
+.context-usage-btn.is-warn .ctx-ring-meter {
+  stroke: var(--m-warning);
+}
+
+.context-usage-btn.is-warn .ctx-ring-text {
+  fill: var(--m-warning);
+}
+
+/* ── Danger state (>= 95%) ─────────────────────────────────────────────── */
+
+.context-usage-btn.is-danger {
+  border-color: var(--m-danger);
+  border-color: color-mix(in srgb, var(--m-danger) 50%, var(--m-border));
+  background: var(--m-bg-raised);
+  background: color-mix(in srgb, var(--m-danger) 10%, var(--m-bg-raised));
+}
+
+.context-usage-btn.is-danger .ctx-ring-meter {
+  stroke: var(--m-danger);
+}
+
+.context-usage-btn.is-danger .ctx-ring-text {
+  fill: var(--m-danger);
+}

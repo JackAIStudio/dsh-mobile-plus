@@ -30,7 +30,11 @@ export function applyChatScroll(scroller) {
       if (gen !== runtime.chatScroll.gen || !scroller.isConnected) return
       if (runtime.prependAdjust) {
         const delta = scroller.scrollHeight - runtime.prependAdjust.height
-        scroller.scrollTop = runtime.prependAdjust.top + delta
+        if (runtime.prependAdjust.wasNearTop) {
+          scroller.scrollTop = Math.max(0, delta - 40)
+        } else {
+          scroller.scrollTop = runtime.prependAdjust.top + delta
+        }
         runtime.chatScroll.top = scroller.scrollTop
         runtime.prependAdjust = null
         return

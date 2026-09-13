@@ -1,12 +1,15 @@
 /* PWA worker for the /mp mobile shell only — never caches API or session data. */
-const CACHE_NAME = 'dsh-mobile-plus-shell-v4'
+const CACHE_NAME = 'dsh-mobile-plus-shell-v5'
 const OFFLINE_URL = '/mp/offline.html'
 const SHELL_PATHS = new Set([
   '/mp/',
   '/mp/manifest.webmanifest',
   '/mp/apple-touch-icon.png',
+  '/mp/apple-touch-icon-dev.png',
   '/mp/icon-192.png',
   '/mp/icon-512.png',
+  '/mp/icon-dev-192.png',
+  '/mp/icon-dev-512.png',
   '/mp/logo.svg',
   OFFLINE_URL,
 ])
@@ -58,3 +61,57 @@ async function networkFirst(request, fallbackPath, allowCachedResponse = true) {
     return new Response('', { status: 503, statusText: 'Service Unavailable' })
   }
 }
+
+self.addEventListener('push', (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch {
+    try {
+      const text = event.data ? event.data.text() : ''
+      data = text ? JSON.parse(text) : {}
+    } catch {}
+  }
+  const isDev = self.location.hostname.startsWith('dev.') || self.location.hostname.startsWith('dev-')
+  const defaultTitle = isDev ? '[Dev] 任务完成' : '任务完成'
+  const title = data.title ? (isDev && !data.title.startsWith('[Dev]') ? `[Dev] ${data.title}` : data.title) : defaultTitle
+  const body = data.body || '一个对话任务已完成'
+  const sessionId = data.sessionId || ''
+  const targetUrl = sessionId ? `/mp/#/s/${encodeURIComponent(sessionId)}` : '/mp/'
+  const options = {
+    body,
+    icon: isDev ? '/mp/icon-dev-192.png' : '/mp/icon-192.png',
+    tag: sessionId ? `task-done-${sessionId}` : 'task-done',
+    renotify: true,
+    data: {
+      sessionId,
+      url: targetUrl,
+    },
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const data = event.notification.data || {}
+  const sessionId = data.sessionId || ''
+  const targetUrl = data.url || (sessionId ? `/mp/#/s/${encodeURIComponent(sessionId)}` : '/mp/')
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
+      for (const client of clients) {
+        if ('focus' in client) {
+          await client.focus()
+          if (sessionId && 'postMessage' in client) {
+            client.postMessage({ type: 'dsh-open-session', sessionId })
+          } else if (client.navigate) {
+            await client.navigate(targetUrl)
+          }
+          return
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl)
+      }
+    }),
+  )
+})

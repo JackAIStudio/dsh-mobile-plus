@@ -15,6 +15,11 @@ import { sessionRow } from './session-row.js'
 import { createSession, createSessionInWorkspace, createTodaySession, renderPresetSelector } from './session-create.js'
 import { openWorkspacePickerSheet } from '../sheets.js'
 import {
+  getSortedSessions,
+  visibleSessions,
+  visibleSessionsGrouped,
+} from './session-sort.js'
+import {
   findWorkspaceForSession,
   switchListMode,
   ownedSessionIds,
@@ -23,7 +28,6 @@ import {
   startListPoll,
   stopListPoll,
   refreshLiveSnapshot,
-  isSessionVisible,
 } from './session-list-data.js'
 
 export {
@@ -37,6 +41,8 @@ export {
   createSession,
   createSessionInWorkspace,
   createTodaySession,
+  getSortedSessions,
+  visibleSessions,
 }
 
 export async function loadMoreSessions() {
@@ -114,29 +120,6 @@ export async function openRecentSessions(opts = {}) {
   else persistRoute({ view: 'sessions' })
   render()
   await loadSessions()
-}
-
-export function getSortedSessions() {
-  const items = state.sessions.filter(isSessionVisible)
-  if (state.sortMode === 'recent') {
-    items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-  } else if (state.sortMode === 'manual' && state.workspace) {
-    const orderMap = new Map((state.workspace.sessionIds || []).map((id, idx) => [id, idx]))
-    items.sort((a, b) => (orderMap.get(a.sessionId) ?? 9999) - (orderMap.get(b.sessionId) ?? 9999))
-  }
-  return items
-}
-
-export function visibleSessions() {
-  const q = (state.sessionQuery || '').trim().toLowerCase()
-  const sorted = getSortedSessions()
-  if (!q) return sorted
-  return sorted.filter((s) => {
-    const title = (s.blank ? '新会话' : sessionTitle(s)).toLowerCase()
-    const ws = findWorkspaceForSession(s.sessionId) || state.workspace
-    const wsName = ws ? workspaceTitle(ws).toLowerCase() : ''
-    return title.includes(q) || wsName.includes(q)
-  })
 }
 
 export function renderHeaderTabs() {
@@ -260,9 +243,26 @@ export function renderSessions() {
 
   const refreshSessionList = () => {
     const q = (state.sessionQuery || '').trim()
-    const visible = visibleSessions()
-    list.replaceChildren(...visible.map((s) => sessionRow(s, isSingleWs)))
-    if (visible.length === 0 && !state.loading) {
+    const { pinned, regular, all } = visibleSessionsGrouped()
+    const nodes = []
+
+    if (pinned.length > 0) {
+      nodes.push(el('li', { class: 'mobile-session-section-header' }, [
+        el('span', { class: 'mobile-session-section-icon' }, ['📌']),
+        el('span', {}, [`置顶会话 · ${pinned.length}`]),
+      ]))
+      nodes.push(...pinned.map((s) => sessionRow(s, isSingleWs)))
+
+      if (regular.length > 0) {
+        nodes.push(el('li', { class: 'mobile-session-section-header' }, [
+          el('span', {}, [state.sortMode === 'recent' ? '全部会话' : '会话列表']),
+        ]))
+      }
+    }
+    nodes.push(...regular.map((s) => sessionRow(s, isSingleWs)))
+
+    list.replaceChildren(...nodes)
+    if (all.length === 0 && !state.loading) {
       empty.textContent = q ? `没有匹配「${q}」的会话` : (isSingleWs ? '该工作区还没有会话，点上方按钮新建一个' : '暂无最近会话')
       empty.hidden = false
     } else {

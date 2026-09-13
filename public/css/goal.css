@@ -1,0 +1,225 @@
+/* ── goal / 目标规划 dock (Web GoalDock / GoalBar) ────────────────────── */
+
+.goal-dock {
+  flex: none;
+  margin: 0 12px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  background: var(--m-bg-raised);
+  overflow: hidden;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.goal-dock.is-active {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.06) 0%, var(--m-bg-raised) 100%);
+}
+
+.goal-dock.is-paused {
+  border-color: var(--m-border);
+  opacity: 0.88;
+}
+
+.goal-dock.is-blocked {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.06) 0%, var(--m-bg-raised) 100%);
+}
+
+.goal-dock-body {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+}
+
+.goal-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.goal-dock-lead {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--m-text-secondary);
+}
+
+.goal-dock.is-active .goal-dock-lead {
+  color: #6366f1;
+}
+
+.goal-dock.is-blocked .goal-dock-lead {
+  color: #ef4444;
+}
+
+.goal-dock-title {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--m-text);
+  white-space: nowrap;
+}
+
+.goal-round-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--m-bg);
+  border: 1px solid var(--m-border);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--m-text-tertiary);
+  white-space: nowrap;
+}
+
+.goal-dock-objective {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
+.goal-dock-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.goal-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--m-text-secondary);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.goal-icon-btn:active {
+  background: var(--m-bg);
+  color: var(--m-text);
+  transform: scale(0.95);
+}
+
+.goal-btn-save {
+  color: #10b981;
+}
+
+.goal-btn-clear:active {
+  color: #ef4444;
+}
+
+.goal-dock-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 6px;
+  background: var(--m-bg);
+  color: var(--m-text);
+  font-size: 13px;
+  outline: none;
+}
+
+.goal-dock-input:focus {
+  border-color: #6366f1;
+}
+
+.goal-dock-detail {
+  padding: 8px 4px 4px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px dashed var(--m-border);
+  margin-top: 4px;
+}
+
+.goal-detail-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--m-text);
+  word-break: break-word;
+}
+
+.goal-blocked-reason {
+  font-size: 12px;
+  color: #ef4444;
+  line-height: 1.4;
+  background: rgba(239, 68, 68, 0.08);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+/* ── 命令气泡与命令执行结果卡片 ────────────────────────────────────────── */
+
+.chat-msg-command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.chat-msg-command-result {
+  align-self: flex-start;
+  max-width: 90%;
+  background: var(--m-bg-raised);
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  color: var(--m-text);
+}
+
+.chat-msg-command-result.chat-msg-failed {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.command-result-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--m-text-secondary);
+}
+
+.command-result-icon {
+  display: inline-flex;
+  color: #6366f1;
+}
+
+.chat-msg-failed .command-result-icon {
+  color: #ef4444;
+}
+
+.command-result-tag {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--m-bg);
+  border: 1px solid var(--m-border);
+}
+
+.command-result-text {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--m-text);
+}
