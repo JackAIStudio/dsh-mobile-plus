@@ -1,5 +1,5 @@
 /* PWA worker for the /mp mobile shell only — never caches API or session data. */
-const CACHE_NAME = 'dsh-mobile-plus-shell-v5'
+const CACHE_NAME = 'dsh-mobile-plus-shell-v6'
 const OFFLINE_URL = '/mp/offline.html'
 const SHELL_PATHS = new Set([
   '/mp/',
@@ -15,15 +15,18 @@ const SHELL_PATHS = new Set([
 ])
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting()
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.add(OFFLINE_URL)))
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(
-    keys
-      .filter((key) => key.startsWith('dsh-mobile-plus-shell-') && key !== CACHE_NAME)
-      .map((key) => caches.delete(key)),
-  )))
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(
+      keys
+        .filter((key) => key.startsWith('dsh-mobile-plus-shell-') && key !== CACHE_NAME)
+        .map((key) => caches.delete(key)),
+    )).then(() => self.clients.claim())
+  )
 })
 
 self.addEventListener('fetch', (event) => {
@@ -51,6 +54,21 @@ async function networkFirst(request, fallbackPath, allowCachedResponse = true) {
     }
     return response
   } catch {
+    // 页面导航遇到偶发网络断连（如手机刚唤醒或切网络），等待 400ms 平滑重试一次
+    if (request.mode === 'navigate') {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 400))
+        const retryRes = await fetch(request)
+        if (retryRes.status < 500) {
+          if (retryRes.ok && new URL(request.url).search === '') {
+            const cache = await caches.open(CACHE_NAME)
+            await cache.put(request, retryRes.clone())
+          }
+          return retryRes
+        }
+      } catch {}
+    }
+
     const cache = await caches.open(CACHE_NAME)
     if (allowCachedResponse) {
       const cached = await cache.match(request)
