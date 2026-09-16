@@ -6,6 +6,7 @@ import { AuthManager } from './lib/auth.js'
 import { LanBridge } from './lib/lan-bridge.js'
 import { RelayBridge } from './lib/relay-bridge.js'
 import { createPendingTracker } from './lib/events.js'
+import { createLiveMuxStream } from './lib/live-stream.js'
 import { createDispatcher } from './lib/rpc.js'
 import { setupRoutes } from './lib/routes.js'
 import { setupPersistenceHook } from './lib/web-push.js'
@@ -60,13 +61,10 @@ export function apply(ctx, config = {}) {
     void (async () => {
       try {
         const proxy = svc(ctx, 'apiProxy')
-        if (proxy?.events?.mux) {
-          const frames = proxy.events.mux(
-            { rpcId: `mp-pending-${Date.now().toString(36)}`, payload: {} },
-            controller.signal,
-          )
-          for await (const frame of frames) pendingTracker.onFrame(frame)
-        }
+        const frames = proxy?.events?.mux
+          ? proxy.events.mux({ rpcId: `mp-pending-${Date.now().toString(36)}`, payload: {} }, controller.signal)
+          : createLiveMuxStream(ctx, controller.signal)
+        for await (const frame of frames) pendingTracker.onFrame(frame)
       } catch {
         /* aborted or stream ended */
       }
