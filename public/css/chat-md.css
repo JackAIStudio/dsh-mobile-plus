@@ -115,8 +115,8 @@
 
 .chat-md-body hr {
   border: none;
-  border-top: 1px solid var(--m-border);
-  margin: 10px 0;
+  border-top: 1px solid color-mix(in srgb, var(--m-border) 65%, transparent);
+  margin: 14px 0;
 }
 
 .chat-md-body img {

@@ -4,14 +4,14 @@
 import { state, chat, runtime } from '../state/state.js'
 import { openImageLightbox } from './lightbox.js'
 import { parseTodos, renderTodoCard } from './todo.js'
-import { parseInboxDelivery } from '../chat/upload.js'
+import { parseInboxDelivery, isImageName } from '../chat/upload.js'
 import { retryOutbox } from '../chat/outbox.js'
 import { el, basename } from '../utils/dom.js'
 import { formatTime } from '../utils/time.js'
 import { renderMarkdown } from './markdown.js'
 import { isImageTool, renderToolImageCard } from '../chat/tool-image.js'
 import { renderToolGroupCard } from './tool-group.js'
-import { loadAttachmentUrl } from '../chat/attachment-loader.js'
+import { loadAttachmentUrl, getPathImageUrl } from '../chat/attachment-loader.js'
 
 export function isHiddenSystemMessage(m) {
   if (chat.showSystemMessages) return false
@@ -57,12 +57,16 @@ export function messageHtml(m) {
     if (!m.local) {
       for (const path of parsed.paths) {
         const preview = runtime.previewByPath.get(path)
-        if (preview && !thumbs.includes(preview)) thumbs.push(preview)
+        if (preview && !thumbs.includes(preview)) {
+          thumbs.push(preview)
+        } else if (isImageName(path)) {
+          thumbs.push({ path, name: basename(path) })
+        }
       }
     }
     const fileCards = m.local
       ? (m.fileCards || [])
-      : parsed.paths.filter((path) => !runtime.previewByPath.has(path)).map((path) => ({ name: basename(path), path }))
+      : parsed.paths.filter((path) => !runtime.previewByPath.has(path) && !isImageName(path)).map((path) => ({ name: basename(path), path }))
     return el('div', { class: cls.join(' ') }, [
       parsed.text ? el('div', { class: 'chat-msg-text' }, [parsed.text]) : null,
       thumbs.length ? el('div', { class: 'chat-msg-images' }, thumbs.map((item) => {
@@ -90,11 +94,28 @@ export function messageHtml(m) {
           loadAttachmentUrl(sessId, item.attachmentId, 'thumb').then((url) => { img.src = url })
           return btn
         }
+        if (item && item.path) {
+          const thumbUrl = getPathImageUrl(item.path, 'thumb')
+          const rawUrl = getPathImageUrl(item.path, 'raw')
+          const img = el('img', { alt: item.name || '', class: 'chat-msg-thumb-img', src: thumbUrl, loading: 'lazy' })
+          return el('button', {
+            type: 'button',
+            class: 'chat-msg-image-btn',
+            'aria-label': '放大查看图片',
+            onclick: () => {
+              openImageLightbox(thumbUrl, rawUrl)
+            },
+          }, [img])
+        }
         return null
       }).filter(Boolean)) : null,
-      fileCards.length ? el('div', { class: 'chat-msg-files' }, fileCards.map((file) => el('div', { class: 'chat-msg-file' }, [
-        el('span', { class: 'chat-msg-file-name' }, [file.name || '文件']),
-      ]))) : null,
+      fileCards.length ? el('div', { class: 'chat-msg-files' }, fileCards.map((file) => {
+        const isImg = isImageName(file.name || '')
+        return el('div', { class: 'chat-msg-file', title: file.name || '' }, [
+          el('span', { class: 'chat-msg-file-icon' }, [isImg ? '🖼️' : '📄']),
+          el('span', { class: 'chat-msg-file-name' }, [file.name || '文件']),
+        ])
+      })) : null,
       m.localStatus === 'failed'
         ? el('button', {
             type: 'button',

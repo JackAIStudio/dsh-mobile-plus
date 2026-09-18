@@ -7,6 +7,11 @@ import { call } from '../net/rpc.js'
 
 const URL_CACHE = new Map()
 
+export function getPathImageUrl(filePath, variant = 'thumb') {
+  if (!filePath) return ''
+  return `/mp/api/attachment?path=${encodeURIComponent(filePath)}${variant === 'thumb' ? '&variant=thumb' : ''}`
+}
+
 export function peekAttachmentUrl(attachmentId, variant = 'thumb') {
   if (!attachmentId) return null
   return URL_CACHE.get(`${attachmentId}:${variant}`) || URL_CACHE.get(`${attachmentId}:raw`) || null

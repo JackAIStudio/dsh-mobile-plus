@@ -119,6 +119,16 @@ function renderIcon(iconType) {
   ])
 }
 
+// Remember user open/close toggles across re-renders
+const imageCardOpenStates = new Map()
+
+function getImageCardId(tool, meta) {
+  if (tool?.id) return `tool-img-${tool.id}`
+  if (tool?.callId) return `tool-img-${tool.callId}`
+  if (meta?.filePath) return `tool-img-${basename(meta.filePath)}`
+  return `tool-img-${meta?.title || 'card'}-${meta?.summary || 'default'}`
+}
+
 export function renderToolImageCard(tool, sessionId = '') {
   const meta = categorizeImageTool(tool)
   const attachments = Array.isArray(tool.attachments) ? tool.attachments : []
@@ -126,7 +136,33 @@ export function renderToolImageCard(tool, sessionId = '') {
     ? 'ok'
     : (tool.status || (tool.errorText ? 'error' : 'running'))
 
-  const head = el('div', { class: 'tool-image-head' }, [
+  const cardId = getImageCardId(tool, meta)
+  // AI 生图产物或运行中默认展开，AI 读取查看(read_image/shot)默认折叠
+  let isOpen = imageCardOpenStates.has(cardId)
+    ? imageCardOpenStates.get(cardId)
+    : (status === 'running' || meta.kind === 'gen')
+
+  const caret = el('span', { class: 'tool-image-caret' }, [isOpen ? '▴' : '▾'])
+
+  let container
+  const head = el('button', {
+    type: 'button',
+    class: 'tool-image-head',
+    'aria-expanded': isOpen ? 'true' : 'false',
+    'aria-label': `${meta.title}，点击${isOpen ? '折叠' : '展开'}`,
+    onclick: (e) => {
+      e.stopPropagation()
+      isOpen = !isOpen
+      imageCardOpenStates.set(cardId, isOpen)
+      if (container) {
+        container.classList.toggle('is-collapsed', !isOpen)
+        container.classList.toggle('is-expanded', isOpen)
+      }
+      bodyWrap.style.display = isOpen ? 'block' : 'none'
+      caret.textContent = isOpen ? '▴' : '▾'
+      head.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
+    },
+  }, [
     el('span', { class: 'tool-image-icon' }, [renderIcon(meta.icon)]),
     el('span', { class: 'tool-image-title' }, [meta.title]),
     status === 'running'
@@ -135,6 +171,7 @@ export function renderToolImageCard(tool, sessionId = '') {
         ? el('span', { class: 'tool-image-badge is-error' }, ['失败'])
         : el('span', { class: 'tool-image-badge is-ok' }, ['完成']),
     meta.summary ? el('span', { class: 'tool-image-summary', title: meta.summary }, [meta.summary]) : null,
+    caret,
   ])
 
   const bodyElements = []
@@ -211,9 +248,17 @@ export function renderToolImageCard(tool, sessionId = '') {
     )
   }
 
-  return el('div', { class: `tool-image-card is-${status}` }, [
-    head,
+  const bodyWrap = el('div', {
+    class: 'tool-image-body-wrap',
+    style: isOpen ? 'display: block;' : 'display: none;',
+  }, [
     ...bodyElements,
     ...footElements,
   ])
+
+  container = el('div', { class: `tool-image-card is-${status} ${isOpen ? 'is-expanded' : 'is-collapsed'}`, id: cardId }, [
+    head,
+    bodyWrap,
+  ])
+  return container
 }

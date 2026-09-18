@@ -250,10 +250,20 @@
 .chat-msg-files { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; align-items: flex-end; }
 .chat-msg-file {
   max-width: 100%;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border: 1px solid var(--m-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--m-bg-raised);
+  color: var(--m-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+}
+.chat-msg-file-icon {
+  font-size: 13px;
+  line-height: 1;
+  flex: none;
 }
 .chat-msg-file-name {
   display: block;
@@ -261,7 +271,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12.5px;
+  color: inherit;
+}
+.chat-msg-user .chat-msg-file {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #ffffff;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.chat-msg-user .chat-msg-file-name {
+  color: #ffffff;
+}
+.chat-msg-user .chat-msg-images {
+  justify-content: flex-end;
+}
+.chat-msg-user .chat-msg-image-btn img {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.12);
 }
 .composer-pics {
   display: flex;
