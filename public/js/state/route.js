@@ -218,10 +218,30 @@ export async function applyRoute(route, opts = {}) {
     await openChat(listed || { sessionId: route.sessionId }, { locationMode })
   }
 
+/** Boot-screen escape: remember the recent list, and open it once the host answers. */
+export function leaveBootForRecent() {
+  const again = runtime.preferRecent === true
+  runtime.preferRecent = true
+  commitLocation({ view: 'sessions' }, 'replace')
+  if (runtime.bootEntered) {
+    void openRecentSessions({ locationMode: 'replace' })
+    return
+  }
+  if (again) {
+    window.location.reload()
+    return
+  }
+  render()
+}
+
 export async function restoreRoute() {
+    const preferRecent = runtime.preferRecent === true
+    runtime.preferRecent = false
     const parsed = parseRoute(window.location.hash)
     const fallbackView = state.listMode === 'flat' ? 'sessions' : 'workspaces'
-    const route = parsed.empty ? (readPersistedRoute() || { view: fallbackView }) : parsed
+    const route = preferRecent
+      ? { view: 'sessions' }
+      : (parsed.empty ? (readPersistedRoute() || { view: fallbackView }) : parsed)
     await applyRoute(route, { replace: true })
     // Refresh replaces this history entry; parents on the stack may not be
     // ours. Zero depth so the in-app back button cannot history.back() off /mp/.

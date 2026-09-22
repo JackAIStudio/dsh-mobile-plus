@@ -241,6 +241,8 @@ export function settingsSheet() {
         if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务。如果你的宿主不是通过常驻进程运行的，可能需要去终端手动重新启动。')) return
         closeSheet()
         state.bootMessage = '宿主服务正在重启，正在重新连接…'
+        runtime.bootEntered = false
+        runtime.preferRecent = false
         state.view = 'boot'
         render()
         void call('host.restart', {}).catch(() => {})

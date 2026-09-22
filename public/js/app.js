@@ -16,6 +16,7 @@ import { setupPinsSync } from './net/pins.js'
 import { installAudioUnlockOnGesture, syncPushSubscription } from './utils/notify.js'
 
 export async function boot() {
+  runtime.bootEntered = false
   state.view = 'boot'
   state.bootMessage = ''
   render()

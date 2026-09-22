@@ -25,6 +25,10 @@ export const runtime = {
   })(),
   ignoringPop: false,
   routeGen: 0,
+  /** True only while enterApp is loading. The boot screen can also mean a restart. */
+  bootEntered: false,
+  /** Connecting screen asked to land on the recent list instead of the last chat. */
+  preferRecent: false,
   chatQuery: 0,
   rpcN: 0,
   mux: null,

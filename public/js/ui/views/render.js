@@ -15,7 +15,7 @@ import { syncSheetPortal } from '../sheets.js'
 import { loadDefaultModel } from '../sheets/model-catalog.js'
 import { loadQuota } from '../../net/quota.js'
 import { ensureMux, ensureHost } from '../../net/mux.js'
-import { restoreRoute } from '../../state/route.js'
+import { restoreRoute, leaveBootForRecent } from '../../state/route.js'
 import { startPendingPoll, stopPendingPoll } from '../../net/pending.js'
 import { loadSlashCatalog } from '../../chat/slash.js'
 import { boot } from '../../app.js'
@@ -25,6 +25,7 @@ export async function enterApp() {
     cleanPairUrl()
     state.error = ''
     state.loading = true
+    runtime.bootEntered = true
     if (state.view !== 'boot') {
       state.view = 'boot'
       render()
@@ -57,7 +58,14 @@ export function render() {
       closeImageLightbox()
     }
     if (state.view === 'boot') {
-      rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [el('p', { class: 'mobile-muted' }, [state.bootMessage || '正在连接…'])]))
+      rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [
+        el('p', { class: 'mobile-muted' }, [state.bootMessage || '正在连接…']),
+        el('button', {
+          type: 'button',
+          class: 'mobile-button',
+          onclick: () => leaveBootForRecent(),
+        }, [runtime.preferRecent ? '刷新并进入' : '最近会话']),
+      ]))
     } else if (state.view === 'error') {
       rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [
         el('p', { class: 'mobile-error', role: 'alert' }, [state.error || '无法连接到运行中的 DSH host。']),

@@ -84,6 +84,8 @@ export function powerSheet() {
             if (!window.confirm('确定要重启 DSH 服务端吗？\n\n这会中断所有正在运行的任务，如果你的宿主不是通过 pm2 等工具常驻运行的，可能需要手动去终端重新启动。')) return
             close()
             state.bootMessage = '宿主服务正在重启，正在重新连接…'
+            runtime.bootEntered = false
+            runtime.preferRecent = false
             state.view = 'boot'
             render()
             void call('host.restart', {}).catch(() => {})
