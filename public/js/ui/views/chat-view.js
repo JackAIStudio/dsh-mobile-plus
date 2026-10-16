@@ -29,7 +29,7 @@ import { syncSheetPortal } from '../sheets/portal.js'
 import { openTimelineSheet } from '../sheets/timeline-sheet.js'
 import { deriveTurns, renderTurnDivider } from '../../chat/timeline.js'
 import { render } from './render.js'
-
+import { seedRunningFromHistory } from '../../net/pending.js'
 
 export async function loadTail() {
     const sid = state.session && state.session.sessionId
@@ -94,6 +94,7 @@ export async function loadTail() {
     } finally {
       if (state.session?.sessionId !== sid) return
       chat.loading = false
+      seedRunningFromHistory(chat.messages)
       render()
       if (state.sheet === 'settings') syncSheetPortal(true)
     }
@@ -154,9 +155,8 @@ export async function openChat(session, opts = {}) {
     seedGoalFromPage(session.sessionId, { projections: session.projections })
     chat.approvals = []
     chat.questions = []
-    const initialModel = session?.projections?.values?.modelSelection?.next
-      || session?.projections?.values?.modelSelection?.lastUsed
-      || (session?.blank ? state.defaultModel : undefined)
+    const selection = session?.projections?.values?.modelSelection
+    const initialModel = selection?.next || selection?.lastUsed || (session?.blank ? state.defaultModel : undefined)
     chat.currentModel = initialModel ? { ...initialModel } : undefined
     chat.modelCatalog = undefined
     const live = ensureLive(session.sessionId)

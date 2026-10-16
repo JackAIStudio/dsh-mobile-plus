@@ -75,6 +75,26 @@ export function hydrateSessionLive(item, listedAt = 0) {
     row.prevRunning = row.running
   }
 
+/** A turn that is still writing survives a page reload as a pending assistant
+    message (or a running tool); the live `turn/start` frame that would have
+    said so was sent before this page connected, so nothing else knows. */
+export function inferRunningFromMessages(messages) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
+      if (!message) continue
+      if (message.kind === 'user') return true
+      if (message.kind !== 'assistant') continue
+      if (message.pending === true) return true
+      if (Array.isArray(message.tools) && message.tools.some((tool) => tool && tool.status === 'running')) return true
+      return false
+    }
+    return false
+  }
+
+export function seedRunningFromHistory(messages) {
+    if (!state.running && inferRunningFromMessages(messages)) state.running = true
+  }
+
 export function decorateSession(item) {
     const row = runtime.sessionLive.get(item.sessionId)
     if (!row) return item
