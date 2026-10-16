@@ -227,6 +227,8 @@ export function pinViewport() {
       if ((window.scrollX || window.scrollY) && !runtime.imeComposing && !composerFocused) {
         window.scrollTo(0, 0)
       }
+      // Tell anyone who mirrors this layout (composer gap strip) it moved.
+      window.dispatchEvent(new Event('mp-viewport-applied'))
     }
 
     const schedule = () => {

@@ -8,13 +8,18 @@ import { stopPendingPoll } from './pending.js'
 import { foldEvents, applySessionTitle, isRecord, toWireEvent } from '../chat/fold.js'
 import { applyContextPressure, absorbContextEvent } from '../chat/context-usage.js'
 import { syncSheetPortal } from '../ui/sheets/portal.js'
-import { applyTodosLiveEvent, isStandingTodoEvent, applyTodosProjection } from '../ui/todo.js'
+import { applyTodosLiveEvent, applyTodosProjection } from '../ui/todo.js'
 import { applyGoalProjection, applyGoalChangeEvent } from '../chat/goal.js'
-import { applySessionLive, applyPendingFrame, ensureLive } from './pending.js'
+import { applySessionLive, applyPendingFrame } from './pending.js'
 import { dropOutboxEcho, reconcileOutbox } from '../chat/outbox.js'
 import { refreshLiveSnapshot } from '../ui/views/session-view.js'
 import { render } from '../ui/views/render.js'
 import { triggerTaskDoneNotification, notifyIfCompleted } from '../utils/notify.js'
+import { throttleTrailing } from '../utils/frame-throttle.js'
+
+// Streamed frames arrive many times per second, and every one of them asks for
+// a full chat re-render; keep the UI live at a steady cadence instead.
+const renderLive = throttleTrailing(render, 100)
 
 export function parseLiveFrame(data) {
     if (typeof data !== 'string' || data === '') return null
@@ -405,7 +410,7 @@ export async function ensureHost() {
 
 export function handleMuxFrame(frame) {
     const pendingChanged = applyPendingFrame(frame)
-    if (pendingChanged && state.view === 'chat') render()
+    if (pendingChanged && state.view === 'chat') renderLive()
     const hadRunning = typeof frame?.sessionId === 'string'
       && (runtime.sessionLive.get(frame.sessionId)?.running === true || (frame.sessionId === state.session?.sessionId && state.running === true))
     const statusChanged = applySessionLive(frame)
@@ -421,10 +426,10 @@ export function handleMuxFrame(frame) {
             void loadQuota(true)
             triggerTaskDoneNotification(state.session?.title || '会话', frame.sessionId)
           }
-          if (state.view === 'chat') render()
+          if (state.view === 'chat') renderLive()
         }
       }
-      if (statusChanged && state.view === 'sessions') render()
+      if (statusChanged && state.view === 'sessions') renderLive()
       return
     }
     if (frame && typeof frame.type === 'string' && frame.type.startsWith('host/')) {
@@ -436,25 +441,25 @@ export function handleMuxFrame(frame) {
     if (frame?.type === 'session/projection' && typeof frame.sessionId === 'string') {
       if (frame.key === 'title') {
         if (applySessionTitle(frame.sessionId, frame.value, frame.seq) && (state.view === 'chat' || state.view === 'sessions')) {
-          render()
+          renderLive()
         }
         return
       }
       if (frame.key === 'todos') {
         if (applyTodosProjection(frame.sessionId, frame.value, frame.seq) && state.view === 'chat') {
-          render()
+          renderLive()
         }
         return
       }
       if (frame.key === 'goal') {
         if (applyGoalProjection(frame.sessionId, frame.value, frame.seq) && state.view === 'chat') {
-          render()
+          renderLive()
         }
         return
       }
       if (frame.key === 'contextPressure') {
         if (applyContextPressure(frame.sessionId, frame.value, frame.seq)) {
-          if (state.view === 'chat') render()
+          if (state.view === 'chat') renderLive()
           if (state.sheet === 'settings') syncSheetPortal(true)
         }
         return
@@ -463,18 +468,18 @@ export function handleMuxFrame(frame) {
     if (frame?.type === 'session/event' && typeof frame.sessionId === 'string' && frame.event?.type === 'session/title') {
       const data = isRecord(frame.event.data) ? frame.event.data : {}
       if (applySessionTitle(frame.sessionId, data.title, frame.event.seq) && (state.view === 'chat' || state.view === 'sessions')) {
-        render()
+        renderLive()
       }
       return
     }
-    if (statusChanged && state.view === 'sessions') render()
+    if (statusChanged && state.view === 'sessions') renderLive()
     if (frame?.type !== 'session/event' || typeof frame.sessionId !== 'string') return
     const ev = frame.event
     if (!ev || typeof ev.type !== 'string') return
     if (frame.sessionId !== state.session?.sessionId) {
       // Keep the local bubble until the open chat can fold the echo; other
       // sessions can drop the matching outbox row immediately.
-      if (ev.type === 'user/message' && dropOutboxEcho(frame.sessionId, ev) && state.view === 'chat') render()
+      if (ev.type === 'user/message' && dropOutboxEcho(frame.sessionId, ev) && state.view === 'chat') renderLive()
       return
     }
     const turnMarker = ev.type === 'turn/start' || ev.type === 'turn/end'
@@ -494,7 +499,7 @@ export function handleMuxFrame(frame) {
       }
       chat.liveBuffer.push(ev)
       if (absorbContextEvent(ev)) {
-        if (state.view === 'chat') render()
+        if (state.view === 'chat') renderLive()
         if (state.sheet === 'settings') syncSheetPortal(true)
       }
       return
@@ -507,7 +512,7 @@ export function handleMuxFrame(frame) {
     const messagesChanged = next !== chat.messages
     if (messagesChanged) chat.messages = next
     const outboxChanged = (ev.type === 'user/message' || ev.type === 'command/run') && reconcileOutbox(frame.sessionId)
-    if (messagesChanged || turnMarker || todosChanged || goalChanged || outboxChanged || pressureChanged) render()
+    if (messagesChanged || turnMarker || todosChanged || goalChanged || outboxChanged || pressureChanged) renderLive()
     if (pressureChanged && state.sheet === 'settings') syncSheetPortal(true)
   }
 

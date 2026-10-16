@@ -15,7 +15,6 @@ const CHIP_MIN_BAND = 80
 
 let strip = null
 let chip = null
-let timer = 0
 
 function ensureNodes() {
   if (strip && strip.isConnected) return
@@ -47,23 +46,13 @@ function refresh() {
   chip.hidden = false
 }
 
-/** The lifted height only exists once the viewport pin has run, and nothing
-    announces that, so poll while a field holds focus in a silent shell. */
-function schedule() {
-  if (timer) clearInterval(timer)
-  timer = 0
-  refresh()
-  if (!shellIgnoresKeyboard() || !isTextEntry(document.activeElement)) {
-    if (strip) strip.hidden = true
-    return
-  }
-  timer = setInterval(refresh, 400)
-}
-
 export function installKeyboardGapStrip() {
+  // mp-viewport-applied fires at the end of every viewport pin, which is
+  // exactly when the lifted height changes — no polling needed.
+  window.addEventListener('mp-viewport-applied', refresh)
   window.addEventListener('resize', refresh)
-  window.addEventListener('focusin', () => setTimeout(schedule, 40))
-  window.addEventListener('focusout', () => setTimeout(schedule, 40))
-  window.addEventListener('mp-keyboard-silent', schedule)
-  schedule()
+  window.addEventListener('focusin', () => setTimeout(refresh, 40))
+  window.addEventListener('focusout', () => setTimeout(refresh, 40))
+  window.addEventListener('mp-keyboard-silent', refresh)
+  refresh()
 }
