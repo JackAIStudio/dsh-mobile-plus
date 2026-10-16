@@ -126,25 +126,56 @@ export function scrollableAncestor(node) {
     return null
   }
 
+/** Nearest ancestor that can still pan sideways by dx (markdown tables, code
+    blocks, image strips). null = the gesture is not a horizontal pan. */
+export function horizontalScrollerFor(node, dx) {
+    let el = node
+    while (el && el !== document.body && el !== document.documentElement) {
+      if (el.nodeType === 1) {
+        const ox = window.getComputedStyle(el).overflowX
+        if (ox === 'auto' || ox === 'scroll' || ox === 'overlay') {
+          const max = el.scrollWidth - el.clientWidth
+          const room = dx < 0 ? el.scrollLeft < max - 1 : el.scrollLeft > 1
+          if (max > 1 && room) return el
+        }
+      }
+      el = el.parentElement
+    }
+    return null
+  }
+
+/** Pure decision for the overscroll lock: cancel only when this pan is really
+    vertical rubber-banding at a pane edge. A horizontal pan (or one that can
+    still move an inner sideways scroller) must reach the browser, otherwise
+    preventDefault kills that scroller instead of the overscroll. */
+export function shouldCancelPan({ dx, dy, pane, horizontalPan }) {
+    if (horizontalPan) return false
+    if (Math.abs(dx) > Math.abs(dy)) return false
+    if (!pane) return true
+    const atTop = pane.scrollTop <= 0
+    const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 1
+    return (atTop && dy > 0) || (atBottom && dy < 0)
+  }
+
 export function installOverscrollLock() {
+    let startX = 0
     let startY = 0
     document.addEventListener('touchstart', (ev) => {
-      if (ev.touches.length === 1) startY = ev.touches[0].clientY
+      if (ev.touches.length === 1) {
+        startX = ev.touches[0].clientX
+        startY = ev.touches[0].clientY
+      }
     }, { passive: true, capture: true })
     document.addEventListener('touchmove', (ev) => {
       if (ev.touches.length !== 1) return
       // Let iOS keep long-press Paste / caret drag on fields. preventDefault
       // on capture here otherwise swallows the callout.
       if (ev.target && ev.target.closest && ev.target.closest('input, textarea, [contenteditable="true"]')) return
+      const dx = ev.touches[0].clientX - startX
       const dy = ev.touches[0].clientY - startY
       const pane = scrollableAncestor(ev.target)
-      if (!pane) {
-        ev.preventDefault()
-        return
-      }
-      const atTop = pane.scrollTop <= 0
-      const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 1
-      if ((atTop && dy > 0) || (atBottom && dy < 0)) ev.preventDefault()
+      const horizontalPan = horizontalScrollerFor(ev.target, dx) !== null
+      if (shouldCancelPan({ dx, dy, pane, horizontalPan })) ev.preventDefault()
     }, { passive: false, capture: true })
   }
 

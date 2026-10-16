@@ -94,8 +94,13 @@
 .chat-md-body table {
   margin: 8px 0;
   border-collapse: collapse;
+  /* Wide tables pan sideways instead of being clipped. Keep the box inside
+     the bubble (max-width) so it stays the horizontal scroller for touch. */
   display: block;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
   font-size: 13px;
 }
 
