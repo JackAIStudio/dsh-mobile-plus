@@ -78,6 +78,26 @@ export function applyChatScroll(scroller) {
     }
   }
 
+/* ── reader gestures ──────────────────────────────────────────────────
+   Swapping the conversation DOM under a moving finger reads as the page
+   "refreshing" mid-scroll, so stream renders wait for the gesture to end
+   (see ui/views/stream-render.js). */
+let gestureUntil = 0
+
+export function chatGestureActive() {
+    return Date.now() < gestureUntil
+  }
+
+export function installChatGestureWatch() {
+    const hold = (ms, target) => {
+      if (target && target.closest && target.closest('.chat-scroll')) gestureUntil = Date.now() + ms
+    }
+    window.addEventListener('touchstart', (ev) => hold(600, ev.target), { passive: true, capture: true })
+    window.addEventListener('touchmove', (ev) => hold(600, ev.target), { passive: true, capture: true })
+    window.addEventListener('touchend', () => { gestureUntil = Math.max(gestureUntil, Date.now() + 400) }, { passive: true, capture: true })
+    window.addEventListener('wheel', (ev) => hold(400, ev.target), { passive: true, capture: true })
+  }
+
 export function captureListScroll() {
     const existing = document.querySelector('.mobile-list')
     if (!existing || !existing.isConnected) return
@@ -172,13 +192,13 @@ export function installOverscrollLock() {
     let startX = 0
     let startY = 0
     document.addEventListener('touchstart', (ev) => {
-      if (ev.touches.length === 1) {
+      if (ev.touches && ev.touches.length === 1) {
         startX = ev.touches[0].clientX
         startY = ev.touches[0].clientY
       }
     }, { passive: true, capture: true })
     document.addEventListener('touchmove', (ev) => {
-      if (ev.touches.length !== 1) return
+      if (!ev.touches || ev.touches.length !== 1) return
       // Let iOS keep long-press Paste / caret drag on fields. preventDefault
       // on capture here otherwise swallows the callout.
       if (ev.target && ev.target.closest && ev.target.closest('input, textarea, [contenteditable="true"]')) return

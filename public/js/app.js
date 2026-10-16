@@ -9,7 +9,7 @@ import { refreshPending } from './net/pending.js'
 import { refreshLiveSnapshot } from './ui/views/session-view.js'
 import { enterApp, render } from './ui/views/render.js'
 import { applyTheme } from './ui/theme.js'
-import { installOverscrollLock, pinViewport } from './utils/scroll.js'
+import { installOverscrollLock, pinViewport, installChatGestureWatch } from './utils/scroll.js'
 import { installKeyboardFitBar } from './chat/keyboard-fit-bar.js'
 import { installKeyboardHideWatch } from './chat/keyboard-hide-watch.js'
 import { installKeyboardGapStrip } from './chat/keyboard-gap-strip.js'
@@ -126,6 +126,7 @@ if (typeof window !== 'undefined') {
   installOverscrollLock()
   installKeyboardFitBar()
   installKeyboardHideWatch()
+  installChatGestureWatch()
   installKeyboardGapStrip()
   installAudioUnlockOnGesture()
   registerPwa()
