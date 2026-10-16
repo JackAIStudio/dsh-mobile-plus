@@ -16,10 +16,18 @@ import { refreshLiveSnapshot } from '../ui/views/session-view.js'
 import { render } from '../ui/views/render.js'
 import { triggerTaskDoneNotification, notifyIfCompleted } from '../utils/notify.js'
 import { throttleTrailing } from '../utils/frame-throttle.js'
+import { beginNodeReuse, endNodeReuse } from '../ui/views/node-reuse.js'
 
 // Streamed frames arrive many times per second, and every one of them asks for
 // a full chat re-render; keep the UI live at a steady cadence instead.
-const renderLive = throttleTrailing(render, 100)
+const renderLive = throttleTrailing(() => {
+  beginNodeReuse()
+  try {
+    render()
+  } finally {
+    endNodeReuse()
+  }
+}, 100)
 
 export function parseLiveFrame(data) {
     if (typeof data !== 'string' || data === '') return null

@@ -12,6 +12,7 @@ import { renderGoalDock } from '../goal.js'
 import { seedGoalFromPage, standingGoal, goalWatermark } from '../../chat/goal.js'
 import { messageHtml, isHiddenSystemMessage } from '../message.js'
 import { groupConversationItems, renderToolGroupCard } from '../tool-group.js'
+import { claimReused, markReusable } from './node-reuse.js'
 import { renderToolImageCard } from '../../chat/tool-image.js'
 import { renderApprovalPanel, renderQuestionPanel } from '../../chat/approvals.js'
 import { clearAttachments, renderComposerAttachments } from '../../chat/upload.js'
@@ -223,15 +224,18 @@ export function renderChatParts() {
       if (item.kind === 'message') {
         const turn = turnByFirstMsgId.get(item.message.id)
         if (turn) scroller.append(renderTurnDivider(turn, openTimelineSheet))
-        const node = messageHtml(item.message)
+        const refs = [item.message]
+        const node = claimReused(refs) ?? markReusable(messageHtml(item.message), refs)
         node.id = item.message.id
         scroller.append(node)
       } else if (item.kind === 'tool-group') {
-        const card = renderToolGroupCard(item.group)
+        const refs = item.group.tools ?? []
+        const card = claimReused(refs) ?? markReusable(renderToolGroupCard(item.group), refs)
         if (card) scroller.append(card)
       } else if (item.kind === 'image-tool') {
         const sessId = state.session?.sessionId || ''
-        const card = renderToolImageCard(item.tool, sessId)
+        const refs = [item.tool]
+        const card = claimReused(refs) ?? markReusable(renderToolImageCard(item.tool, sessId), refs)
         if (card) {
           card.id = item.id
           scroller.append(card)
