@@ -62,6 +62,13 @@
   color: #dbe4f5;
   border-radius: 8px;
   overflow-x: auto;
+  /* Long lines wrap instead of hiding behind a sideways swipe: a horizontal
+     pan started inside the vertical chat scroller only wins when the finger
+     happens to move sideways first, so the truncated end was hit-or-miss to
+     reach. Wrapping always shows the text. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -70,6 +77,7 @@
   background: transparent;
   padding: 0;
   color: inherit;
+  white-space: inherit;
 }
 
 .chat-md-body ul,
