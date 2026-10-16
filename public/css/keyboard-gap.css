@@ -1,0 +1,34 @@
+/* Names the empty band a lifted composer leaves when the shell hides its
+   keyboard without telling the page (see chat/keyboard-gap-strip.js). */
+
+.kb-gap-strip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--m-bg);
+  border-top: 1px solid var(--m-border);
+  pointer-events: none;
+}
+
+.kb-gap-strip[hidden] {
+  display: none;
+}
+
+.kb-gap-chip {
+  padding: 6px 14px;
+  border: 1px dashed var(--m-border);
+  border-radius: 999px;
+  background: var(--m-bg-raised);
+  color: var(--m-text-tertiary);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.kb-gap-chip[hidden] {
+  display: none;
+}

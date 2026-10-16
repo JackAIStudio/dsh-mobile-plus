@@ -14,6 +14,7 @@ let armed = false
 let probeEl = null
 let keyboardFocused = false
 let silentShell = false
+let keyboardHidden = false
 
 const RATIO_KEY = 'mp.kbInsetRatio'
 const DEFAULT_RATIO = 0.42
@@ -113,11 +114,29 @@ export function clearKeyboardInsetRatio() {
 /** Last-resort inset for shells that report nothing at all. Only phones can
     have a soft keyboard worth lifting for, and only while a field is focused. */
 export function estimatedKeyboardInset() {
-  if (!silentShell || !keyboardFocused) return 0
+  if (!silentShell || !keyboardFocused || keyboardHidden) return 0
   if (!window.navigator.virtualKeyboard) return 0
+  // Touch-only device: a coarse pointer alone also matches touch laptops,
+  // which have no soft keyboard to lift for.
   if (!window.matchMedia('(pointer: coarse)').matches) return 0
+  if (window.matchMedia('(hover: hover)').matches) return 0
   const inset = Math.round(window.innerHeight * keyboardInsetRatio())
   return inset > 120 ? inset : 0
+}
+
+/** The shell's own keyboard UI can hide the keyboard while the field keeps
+    focus (Xiaomi's ▼ chevron does). Whoever can tell reports it here, so the
+    composer stops being lifted off an empty screen. */
+export function markKeyboardHidden() {
+  if (keyboardHidden) return
+  keyboardHidden = true
+  window.dispatchEvent(new Event('resize'))
+}
+
+export function markKeyboardShown() {
+  if (!keyboardHidden) return
+  keyboardHidden = false
+  window.dispatchEvent(new Event('resize'))
 }
 
 export function isTextEntry(node) {

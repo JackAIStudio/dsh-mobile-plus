@@ -11,6 +11,8 @@ import { enterApp, render } from './ui/views/render.js'
 import { applyTheme } from './ui/theme.js'
 import { installOverscrollLock, pinViewport } from './utils/scroll.js'
 import { installKeyboardFitBar } from './chat/keyboard-fit-bar.js'
+import { installKeyboardHideWatch } from './chat/keyboard-hide-watch.js'
+import { installKeyboardGapStrip } from './chat/keyboard-gap-strip.js'
 import { autosizeInput, flushComposerRender } from './chat/composer.js'
 import { reloadPaired, applyRoute, parseRoute, navigateToSession } from './state/route.js'
 import { setupPinsSync } from './net/pins.js'
@@ -123,6 +125,8 @@ if (typeof window !== 'undefined') {
   pinViewport()
   installOverscrollLock()
   installKeyboardFitBar()
+  installKeyboardHideWatch()
+  installKeyboardGapStrip()
   installAudioUnlockOnGesture()
   registerPwa()
   setupPinsSync()
