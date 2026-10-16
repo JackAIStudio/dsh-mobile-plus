@@ -1,0 +1,58 @@
+/* Drag-to-fit calibration bar for overlay-only keyboard shells. */
+
+.kb-fit-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px dashed var(--m-border);
+  border-radius: 8px;
+  background: var(--m-bg-raised);
+  color: var(--m-text-tertiary);
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.kb-fit-bar[data-dragging='1'] {
+  border-color: var(--m-accent);
+  color: var(--m-accent);
+  cursor: grabbing;
+}
+
+.kb-fit-grip {
+  flex: none;
+  font-size: 13px;
+  letter-spacing: -1px;
+}
+
+.kb-fit-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-fit-value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.kb-fit-done {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--m-border);
+  border-radius: 7px;
+  background: var(--m-bg);
+  color: var(--m-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}

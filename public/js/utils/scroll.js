@@ -2,6 +2,7 @@
  * Scroll management and viewport pinning.
  */
 import { runtime, chat } from '../state/state.js'
+import { keyboardInsetPx, estimatedKeyboardInset, installKeyboardInsetProbe } from './virtual-keyboard.js'
 
 export function nearBottom(node) {
     return node.scrollHeight - node.scrollTop - node.clientHeight < 80
@@ -187,13 +188,24 @@ export function pinViewport() {
     const apply = () => {
       ticking = false
       const vv = window.visualViewport
-      const height = vv ? vv.height : window.innerHeight
       const width = vv ? vv.width : window.innerWidth
       const offsetTop = vv ? vv.offsetTop : 0
       const offsetLeft = vv ? vv.offsetLeft : 0
       // iOS keeps innerHeight at the layout size when the keyboard is up;
       // the visual viewport is what actually shrinks (and often shifts).
-      const kbOpen = (window.innerHeight - height) > 80 || offsetTop > 0
+      const visualHeight = vv ? vv.height : window.innerHeight
+      const viewportShrank = (window.innerHeight - visualHeight) > 80 || offsetTop > 0
+      // Overlay shells report nothing through the viewport, so fall back to
+      // the virtual keyboard rect and size the body ourselves. Never apply
+      // both: on shells that already shrink, the viewport is the source of
+      // truth and the rect would double-count the keys.
+      const kbInset = viewportShrank ? 0 : keyboardInsetPx() || estimatedKeyboardInset()
+      const height = viewportShrank
+        ? visualHeight
+        : Math.max(160, window.innerHeight - kbInset)
+      const kbOpen = viewportShrank || kbInset > 0
+      if (kbInset > 0) root.style.setProperty('--m-kb-inset', `${kbInset}px`)
+      else root.style.removeProperty('--m-kb-inset')
 
       // Size the fixed body only. Shrinking <html> itself can make iOS
       // revise the layout viewport and retrigger visualViewport resize.
@@ -233,6 +245,7 @@ export function pinViewport() {
     apply()
     window.addEventListener('resize', schedule)
     window.addEventListener('scroll', schedule, { passive: true })
+    installKeyboardInsetProbe(afterKeyboard)
     window.addEventListener('orientationchange', afterKeyboard)
     window.addEventListener('focusin', (ev) => {
       // Resizing the fixed body during pair-input focusin makes iOS blur the

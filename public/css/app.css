@@ -13,8 +13,10 @@
 @import "./slash.css";
 @import "./composer.css";
 @import "./inputbar.css";
+@import "./keyboard-fit.css";
 @import "./context-usage.css";
 @import "./sheets.css";
+@import "./sheet-steps.css";
 @import "./workspace.css";
 @import "./views.css";
 @import "./session-actions.css";

@@ -1,0 +1,34 @@
+/* Stepper control for numeric sheet rows (keyboard height tuner). */
+
+.kb-step-group {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.kb-step-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-bg-raised);
+  color: var(--m-text);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.kb-step-btn:active {
+  border-color: var(--m-accent);
+  background: var(--m-accent-soft);
+}
+
+.kb-step-value {
+  min-width: 46px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}

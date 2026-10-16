@@ -14,6 +14,7 @@ import { unlockAudio, previewNotification, syncPushSubscription, unsubscribePush
 import { closeSheet, switchSheet, syncSheetPortal } from './portal.js'
 import { openModelSheet } from './model-sheet.js'
 import { currentModelLabel } from './model-catalog.js'
+import { keyboardInsetSection } from './keyboard-inset-row.js'
 
 export function settingsToggleRow(title, desc, value, onToggle) {
   return el('div', { class: 'sheet-toggle-row' }, [
@@ -89,6 +90,9 @@ export function settingsSheet() {
       }),
     ]))
   }
+
+  const keyboardSection = keyboardInsetSection()
+  if (keyboardSection) sections.push(keyboardSection)
 
   sections.push(el('div', { class: 'sheet-section' }, [
     el('div', { class: 'sheet-section-title' }, ['账户额度']),

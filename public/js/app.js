@@ -10,6 +10,7 @@ import { refreshLiveSnapshot } from './ui/views/session-view.js'
 import { enterApp, render } from './ui/views/render.js'
 import { applyTheme } from './ui/theme.js'
 import { installOverscrollLock, pinViewport } from './utils/scroll.js'
+import { installKeyboardFitBar } from './chat/keyboard-fit-bar.js'
 import { autosizeInput, flushComposerRender } from './chat/composer.js'
 import { reloadPaired, applyRoute, parseRoute, navigateToSession } from './state/route.js'
 import { setupPinsSync } from './net/pins.js'
@@ -121,6 +122,7 @@ if (typeof window !== 'undefined') {
   applyTheme()
   pinViewport()
   installOverscrollLock()
+  installKeyboardFitBar()
   installAudioUnlockOnGesture()
   registerPwa()
   setupPinsSync()
