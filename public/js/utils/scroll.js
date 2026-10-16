@@ -11,40 +11,51 @@ export function nearBottom(node) {
 export function captureChatScroll() {
     const existing = document.querySelector('.chat-scroll')
     if (!existing || !existing.isConnected) return
-    if (runtime.chatScroll.restoring) return
     runtime.chatScroll.top = existing.scrollTop
     runtime.chatScroll.stick = nearBottom(existing)
   }
 
+/** Our own scrollTop writes echo back as scroll events; those must not read as
+    reader intent, while anything else (a real swipe) is the reader talking. */
+function setChatScrollTop(scroller, top) {
+    runtime.chatScroll.programmatic = top
+    scroller.scrollTop = top
+  }
+
 export function onChatScroll(ev) {
-    if (runtime.chatScroll.restoring) return
     const node = ev.currentTarget
-    runtime.chatScroll.top = node.scrollTop
+    const top = node.scrollTop
+    if (runtime.chatScroll.programmatic !== null && Math.abs(top - runtime.chatScroll.programmatic) < 2) {
+      return
+    }
+    runtime.chatScroll.programmatic = null
+    runtime.chatScroll.top = top
     runtime.chatScroll.stick = nearBottom(node)
+    // The reader took over: drop any restore still queued for this render.
+    runtime.chatScroll.gen += 1
   }
 
 export function applyChatScroll(scroller) {
     if (!scroller) return
     const gen = ++runtime.chatScroll.gen
-    runtime.chatScroll.restoring = true
     const apply = () => {
       if (gen !== runtime.chatScroll.gen || !scroller.isConnected) return
       if (runtime.prependAdjust) {
         const delta = scroller.scrollHeight - runtime.prependAdjust.height
         if (runtime.prependAdjust.wasNearTop) {
-          scroller.scrollTop = Math.max(0, delta - 40)
+          setChatScrollTop(scroller, Math.max(0, delta - 40))
         } else {
-          scroller.scrollTop = runtime.prependAdjust.top + delta
+          setChatScrollTop(scroller, runtime.prependAdjust.top + delta)
         }
         runtime.chatScroll.top = scroller.scrollTop
         runtime.prependAdjust = null
         return
       }
       if (runtime.chatScroll.stick) {
-        scroller.scrollTop = scroller.scrollHeight
+        setChatScrollTop(scroller, scroller.scrollHeight)
         runtime.chatScroll.top = scroller.scrollTop
       } else {
-        scroller.scrollTop = Math.min(runtime.chatScroll.top, scroller.scrollHeight)
+        setChatScrollTop(scroller, Math.min(runtime.chatScroll.top, scroller.scrollHeight))
       }
     }
     apply()
@@ -52,7 +63,6 @@ export function applyChatScroll(scroller) {
       apply()
       requestAnimationFrame(() => {
         apply()
-        if (gen === runtime.chatScroll.gen) runtime.chatScroll.restoring = false
       })
     })
     const imgs = scroller.querySelectorAll('img')
@@ -60,7 +70,7 @@ export function applyChatScroll(scroller) {
       if (img.complete) continue
       const settle = () => {
         if (gen !== runtime.chatScroll.gen || !scroller.isConnected || !runtime.chatScroll.stick) return
-        scroller.scrollTop = scroller.scrollHeight
+        setChatScrollTop(scroller, scroller.scrollHeight)
         runtime.chatScroll.top = scroller.scrollTop
       }
       img.addEventListener('load', settle, { once: true })

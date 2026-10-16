@@ -40,7 +40,7 @@ export const runtime = {
   svgUid: 0,
   prependAdjust: null,
   sessionLive: new Map(),
-  chatScroll: { top: 0, stick: true, gen: 0, restoring: false },
+  chatScroll: { top: 0, stick: true, gen: 0, programmatic: null },
   listScroll: { top: 0 },
   todoScroll: { top: 0 },
   composerNode: null,

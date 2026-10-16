@@ -141,7 +141,7 @@ export async function openChat(session, opts = {}) {
     runtime.lastMsgScrollKey = null
     runtime.chatScroll.stick = true
     runtime.chatScroll.top = 0
-    runtime.chatScroll.restoring = false
+    runtime.chatScroll.programmatic = null
     runtime.todoScroll.top = 0
     runtime.todoScroll.stick = true
     todoWatermark.delete(session.sessionId)
