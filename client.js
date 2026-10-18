@@ -45,11 +45,18 @@ window.__ModuleLoader__.load({
         h('circle', { cx: 8, cy: 8, r: 6.2, stroke: 'currentColor', strokeWidth: 1.3 }),
         h('path', { d: 'M1.8 8h12.4M8 1.8c2 2.2 3.1 4.2 3.1 6.2s-1.1 4-3.1 6.2c-2-2.2-3.1-4.2-3.1-6.2s1.1-4 3.1-6.2z', stroke: 'currentColor', strokeWidth: 1.3 }))
     }
-    function RemoteLogo({ size = 18 }) {
-      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
-        h('rect', { x: 3.2, y: 1.55, width: 7.4, height: 12.9, rx: 1.7, stroke: 'currentColor', strokeWidth: 1.3 }),
-        h('path', { d: 'M5.55 3.2h2.7M5.75 12.85h2.3', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round' }),
-        h('path', { d: 'M12.35 5.1c1.4 1.05 1.4 4.75 0 5.8M11.3 6.35c.78.7.78 2.6 0 3.3', stroke: 'currentColor', strokeWidth: 1.25, strokeLinecap: 'round' }))
+    function RemoteLogo({ size = 21 }) {
+      const gid = `mp-logo-${React.useId().replace(/:/g, '')}`
+      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true', style: { display: 'block', flex: 'none' } },
+        h('defs', null,
+          h('linearGradient', { id: gid, x1: '0', y1: '0', x2: '1', y2: '1' },
+            h('stop', { offset: '0', stopColor: '#3E7BFA' }),
+            h('stop', { offset: '1', stopColor: '#7A5CFF' }))),
+        h('rect', { x: 1, y: 1, width: 22, height: 22, rx: 7, fill: `url(#${gid})` }),
+        h('rect', { x: 7.1, y: 4.2, width: 7.4, height: 13.4, rx: 1.9, stroke: '#fff', strokeWidth: 1.45 }),
+        h('path', { d: 'M9.2 6.2h3.2M9.45 15.4h2.7', stroke: '#fff', strokeWidth: 1.25, strokeLinecap: 'round' }),
+        h('circle', { cx: 17.9, cy: 6.1, r: 3.5, fill: '#fff' }),
+        h('path', { d: 'M17.9 4.5v3.2M16.3 6.1h3.2', stroke: '#5B6CF0', strokeWidth: 1.35, strokeLinecap: 'round' }))
     }
 
     function deviceNameFromUserAgent(ua) {
@@ -393,11 +400,11 @@ window.__ModuleLoader__.load({
         h('button', {
           type: 'button',
           className: wide === false ? 'mp-trigger' : 'mp-trigger mp-trigger-wide',
-          'aria-label': '手机远程',
+          'aria-label': 'DSH Mobile Plus 手机远程',
           'aria-expanded': open,
-          title: '手机远程',
+          title: 'DSH Mobile Plus · 手机远程',
           onClick: openPanel,
-        }, h(RemoteLogo, { size: 18 })),
+        }, h(RemoteLogo, { size: 21 })),
         overlay && typeof document !== 'undefined' && document.body && typeof createPortal === 'function' ? createPortal(overlay, document.body) : overlay)
     }
 

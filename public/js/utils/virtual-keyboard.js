@@ -111,15 +111,21 @@ export function clearKeyboardInsetRatio() {
   }
 }
 
+/** Only touch-only devices can own a keyboard the page must estimate. A
+    desktop Chrome window exposes `navigator.virtualKeyboard` too, but has no
+    soft keyboard; taking it over there lifts the composer into an empty band
+    and shows the calibration bar for no reason. */
+function isSoftKeyboardDevice() {
+  if (!window.navigator.virtualKeyboard) return false
+  if (!window.matchMedia('(pointer: coarse)').matches) return false
+  return (window.navigator.maxTouchPoints || 0) > 0
+}
+
 /** Last-resort inset for shells that report nothing at all. Only phones can
     have a soft keyboard worth lifting for, and only while a field is focused. */
 export function estimatedKeyboardInset() {
   if (!silentShell || !keyboardFocused || keyboardHidden) return 0
-  if (!window.navigator.virtualKeyboard) return 0
-  // Touch-only device: a coarse pointer alone also matches touch laptops,
-  // which have no soft keyboard to lift for.
-  if (!window.matchMedia('(pointer: coarse)').matches) return 0
-  if (window.matchMedia('(hover: hover)').matches) return 0
+  if (!isSoftKeyboardDevice()) return 0
   const inset = Math.round(window.innerHeight * keyboardInsetRatio())
   return inset > 120 ? inset : 0
 }
@@ -161,7 +167,7 @@ function viewportNow() {
     assumption: resize-to-content shells shrink both heights at once. */
 function armIfKeyboardIgnored(baseline) {
   if (armed || overlay) return false
-  if (!window.navigator.virtualKeyboard) return false
+  if (!isSoftKeyboardDevice()) return false
   const now = viewportNow()
   const ignored =
     baseline.height - now.height < 80 &&
