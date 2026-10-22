@@ -375,7 +375,16 @@
   line-height: 22px;
   cursor: pointer;
 }
-.attach-input { display: none; }
+.attach-input {
+  position: fixed;
+  top: -100px;
+  left: -100px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
 .attach-sheet { padding: 0 10px 12px; }
 .attach-sheet-item,
 .attach-sheet-cancel {

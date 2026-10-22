@@ -61,6 +61,7 @@ export function ensureFileInput() {
     runtime.fileInput = el('input', {
       type: 'file',
       multiple: true,
+      accept: 'image/*,*/*',
       class: 'attach-input',
       onchange: onPickFiles,
     })
@@ -216,7 +217,9 @@ export function onPickFiles(ev) {
   }
 
 export function pickFromFiles() {
-    ensureFileInput().click()
+    const input = ensureFileInput()
+    input.value = ''
+    input.click()
   }
 
 export function removeComposerImage(index) {
