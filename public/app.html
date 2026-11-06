@@ -12,11 +12,27 @@
   <link rel="apple-touch-icon" href="/mp/apple-touch-icon.png" />
   <link rel="icon" type="image/svg+xml" href="/mp/logo.svg" />
   <title>远程访问</title>
-  <link rel="stylesheet" href="/mp/css/app.css?v=0.4.13" />
+  <!-- Boot fallback styles first, and on their own: if the app.css import
+       chain fails, the text and links below must still render and tap. -->
+  <link rel="stylesheet" href="/mp/css/boot.css?v=0.5.6" />
+  <link rel="stylesheet" href="/mp/css/app.css?v=0.5.6" />
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <!-- Rendered before any script runs: a module that never loads, a dead
+         network, or a stale WebView must still show a way forward. The boot
+         screen replaces this as soon as the app module takes over. -->
+    <main class="mobile mobile-empty" id="boot-fallback">
+      <p class="mobile-muted" id="boot-fallback-text">正在连接…</p>
+      <!-- Plain links on purpose: they must work when no script runs at all. -->
+      <a class="mobile-button mobile-fallback-link is-primary" href="/mp/#/recent">最近会话</a>
+      <a class="mobile-button mobile-fallback-link" href="/mp/">刷新页面</a>
+    </main>
+  </div>
   <div id="sheet-portal"></div>
-  <script type="module" src="/mp/js/app.js?v=0.4.13"></script>
+  <!-- Classic script: it must run even when the ES module graph cannot load,
+       so it can say why the screen is empty instead of leaving it blank. -->
+  <script src="/mp/js/boot-watch.js?v=0.5.6"></script>
+  <script type="module" src="/mp/js/app.js?v=0.5.6"></script>
 </body>
 </html>

@@ -30,6 +30,9 @@ import { openTimelineSheet } from '../sheets/timeline-sheet.js'
 import { deriveTurns, renderTurnDivider } from '../../chat/timeline.js'
 import { render } from './render.js'
 import { seedRunningFromHistory } from '../../net/pending.js'
+import { shouldLoadOlder, resetOlderLoader } from '../../chat/older-loader.js'
+import { ensureLatestChip, syncLatestChip, resetLatestChip, noteReaderScroll } from '../../chat/latest-chip.js'
+import { bindDraftSession, readStoredDraft } from '../../chat/draft-store.js'
 
 export async function loadTail() {
     const sid = state.session && state.session.sessionId
@@ -137,10 +140,13 @@ export async function openChat(session, opts = {}) {
     const q = ++runtime.chatQuery
     state.session = session
     state.view = 'chat'
-    setDraft('')
+    bindDraftSession(session.sessionId)
+    setDraft(readStoredDraft(session.sessionId))
     clearAttachments()
     state.sending = false
     runtime.lastMsgScrollKey = null
+    resetLatestChip(0)
+    resetOlderLoader()
     runtime.chatScroll.stick = true
     runtime.chatScroll.top = 0
     runtime.chatScroll.programmatic = null
@@ -198,12 +204,19 @@ export function renderChatParts() {
     if (runtime.lastMsgScrollKey === null) runtime.chatScroll.stick = true
     if (lastId !== undefined) runtime.lastMsgScrollKey = lastId
 
-    const scroller = el('div', { class: 'chat-scroll', onscroll: onChatScroll })
-    if (chat.hasOlder) {
-      const olderBtn = chat.loadingOlder
-        ? el('button', { type: 'button', class: 'chat-load-older is-loading', disabled: true }, ['正在加载更早消息…'])
-        : el('button', { type: 'button', class: 'chat-load-older', onclick: () => void loadOlder() }, ['加载更早消息'])
-      scroller.append(olderBtn)
+    // Reaching the top loads the previous page by itself (see older-loader).
+    // The button only stays for the state the gesture cannot express: the last
+    // load failed, or the host says there is nothing older.
+    const scroller = el('div', {
+      class: 'chat-scroll',
+      onscroll: (ev) => {
+        onChatScroll(ev)
+        noteReaderScroll(ev.currentTarget)
+        if (shouldLoadOlder(ev.currentTarget)) void loadOlder()
+      },
+    })
+    if (chat.loadingOlder) {
+      scroller.append(el('div', { class: 'chat-load-older is-loading' }, ['正在加载更早消息…']))
     }
     if (chat.loading && chat.messages.length === 0 && localPending.length === 0) {
       scroller.append(el('div', { class: 'chat-typing' }, ['加载中…']))
@@ -267,7 +280,10 @@ export function renderChatParts() {
   }
 
 export function chatAboveBar(parts) {
-    return [parts.header, parts.error, parts.status, parts.scroller, parts.todos, parts.goal, parts.pics, parts.slash].filter(Boolean)
+    // The way-back chip is positioned against the scroller, not the page, so it
+    // floats just above the composer instead of running underneath it.
+    const pane = el('div', { class: 'chat-pane' }, [parts.scroller, ensureLatestChip()])
+    return [parts.header, parts.error, parts.status, pane, parts.todos, parts.goal, parts.pics, parts.slash].filter(Boolean)
   }
 
 export function applyChatPage() {
@@ -292,6 +308,8 @@ export function applyChatPage() {
         page.append(buildInputbar())
       }
     }
-    applyChatScroll(page.querySelector('.chat-scroll'))
+    const paneScroller = page.querySelector('.chat-scroll')
+    applyChatScroll(paneScroller)
+    syncLatestChip(paneScroller, chat.messages.length + openOutbox().length)
     applyTodoScroll(page.querySelector('.todo-dock-list'))
   }

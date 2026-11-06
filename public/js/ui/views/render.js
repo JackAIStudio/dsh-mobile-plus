@@ -25,6 +25,9 @@ export async function enterApp() {
     cleanPairUrl()
     state.error = ''
     state.loading = true
+    // Start from a clean slate: a previous render error must not short-circuit
+    // the views we are about to build.
+    if (state.view === 'error') state.view = 'boot'
     runtime.bootEntered = true
     if (state.view !== 'boot') {
       state.view = 'boot'
@@ -53,6 +56,29 @@ export async function enterApp() {
   }
 
 export function render() {
+    try {
+      renderView()
+    } catch (err) {
+      // A view builder that throws must not leave the phone on a blank page.
+      // Keep the reason on screen and give the reader a way out; the next
+      // successful render replaces it.
+      state.error = String((err && err.message) || err || '界面渲染失败')
+      state.view = 'error'
+      state.loading = false
+      rootEl.replaceChildren(el('main', { class: 'mobile mobile-empty' }, [
+        el('p', { class: 'mobile-error', role: 'alert' }, [state.error]),
+        el('button', { type: 'button', class: 'mobile-new', onclick: () => void boot() }, ['重试']),
+        el('button', { type: 'button', class: 'mobile-button', onclick: () => reloadApp() }, ['刷新页面']),
+      ]))
+    }
+    try {
+      syncSheetPortal()
+    } catch {
+      /* the sheet is optional; a broken one must not hide the page */
+    }
+  }
+
+function renderView() {
     if (state.view !== 'chat') {
       abandonComposerIme()
       closeImageLightbox()
@@ -90,5 +116,4 @@ export function render() {
         applyChatPage()
       }
     }
-    syncSheetPortal()
   }

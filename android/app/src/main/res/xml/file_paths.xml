@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The camera app can only write where it is granted a uri; keep it to the
+     cache dir we can throw away. -->
+<paths>
+    <cache-path name="captures" path="captures/" />
+</paths>

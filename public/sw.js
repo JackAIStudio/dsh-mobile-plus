@@ -1,8 +1,9 @@
 /* PWA worker for the /mp mobile shell only — never caches API or session data. */
-const CACHE_NAME = 'dsh-mobile-plus-shell-v6'
+const CACHE_NAME = 'dsh-mobile-plus-shell-v7'
 const OFFLINE_URL = '/mp/offline.html'
 const SHELL_PATHS = new Set([
   '/mp/',
+  '/mp/css/boot.css',
   '/mp/manifest.webmanifest',
   '/mp/apple-touch-icon.png',
   '/mp/apple-touch-icon-dev.png',
@@ -16,7 +17,14 @@ const SHELL_PATHS = new Set([
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.add(OFFLINE_URL)))
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME)
+    // Keep both escape hatches on the device: the offline page, and the boot
+    // document. A cached boot document still shows its static fallback when
+    // the host is unreachable, which is better than an empty 503.
+    // addAll is atomic: a half-filled cache is worse than none at all.
+    await cache.addAll([OFFLINE_URL, '/mp/']).catch(() => cache.add(OFFLINE_URL).catch(() => {}))
+  })())
 })
 
 self.addEventListener('activate', (event) => {
@@ -76,9 +84,28 @@ async function networkFirst(request, fallbackPath, allowCachedResponse = true) {
     }
     const fallback = await cache.match(fallbackPath)
     if (fallback !== undefined) return fallback
+    // Never answer a navigation with an empty body: that is exactly the blank
+    // screen this worker is supposed to prevent. Say what happened instead.
+    if (request.mode === 'navigate') {
+      return new Response(OFFLINE_FALLBACK_HTML, {
+        status: 503,
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+      })
+    }
     return new Response('', { status: 503, statusText: 'Service Unavailable' })
   }
 }
+
+const OFFLINE_FALLBACK_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>手机远程</title><style>
+body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+padding:32px;box-sizing:border-box;text-align:center;background:#f3f5f9;color:#1c2333;
+font:16px/1.5 -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif}
+p{margin:0;color:#64748b}a{display:inline-flex;align-items:center;justify-content:center;min-width:132px;
+height:40px;padding:0 18px;border-radius:10px;background:#2f6fed;color:#fff;text-decoration:none;font-weight:600}
+@media(prefers-color-scheme:dark){body{background:#111418;color:#e8eaed}p{color:#9aa3ad}}
+</style></head><body><p>连不上正在运行的 DSH。</p><a href="/mp/">重新加载</a></body></html>`
 
 self.addEventListener('push', (event) => {
   let data = {}

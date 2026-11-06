@@ -1,0 +1,103 @@
+/*
+ * First-paint fallback, deliberately independent of css/app.css.
+ *
+ * app.css is an @import chain; one missing sheet drops the whole cascade.
+ * The HTML ships a boot fallback that must stay readable and tappable even
+ * then, so its few rules live here and are loaded before app.css.
+ */
+:root {
+  --boot-bg: #f3f5f9;
+  --boot-text: #1c2333;
+  --boot-muted: #64748b;
+  --boot-border: #dfe4ec;
+  --boot-raised: #ffffff;
+  --boot-accent: #2f6fed;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --boot-bg: #111418;
+    --boot-text: #e8eaed;
+    --boot-muted: #9aa3ad;
+    --boot-border: #2b333d;
+    --boot-raised: #1a1f26;
+    --boot-accent: #4f8cff;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--boot-bg);
+  color: var(--boot-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#root {
+  height: 100%;
+}
+
+.mobile-empty {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.mobile-muted {
+  margin: 0;
+  color: var(--boot-muted);
+}
+
+.mobile-error {
+  margin: 0;
+  color: #d64545;
+}
+
+.mobile-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 132px;
+  height: 38px;
+  padding: 0 18px;
+  border: 1px solid var(--boot-border);
+  border-radius: 10px;
+  background: var(--boot-raised);
+  color: var(--boot-text);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* The static fallback links must read as buttons without app.css. */
+.mobile-fallback-link {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-fallback-link:active {
+  opacity: 0.8;
+}
+
+.mobile-fallback-link.is-primary {
+  border-color: transparent;
+  background: var(--boot-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

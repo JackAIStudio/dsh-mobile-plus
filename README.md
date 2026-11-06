@@ -43,6 +43,44 @@ dsh plugin --profile web add github:JackAIStudio/dsh-mobile-plus
 
 改配置或插件代码后需要重启 `dsh web`。
 
+到手机浏览器里打开 `/mp/` 也能用。但**安卓上不建议「添加到桌面」成独立窗口**：小米浏览器把这种独立窗口开在 `PWAActivity` 里，那个外壳没有实现 WebView 的 `onShowFileChooser`，回形针点了没反应，拍照也拿不到摄像头。详见下一节。
+
+## 安卓壳（可选，解决附件与摄像头）
+
+小米浏览器把网页「装成 App」后跑在独立窗口里，那个窗口**不是**普通标签页：
+
+| 同一页面 | 附件按钮 | 摄像头 |
+|---|---|---|
+| 普通浏览器标签页 | 正常弹选择器 | 可用 |
+| 桌面图标独立窗口 | 点了没反应 | `NotAllowedError` |
+
+原因是 Android 要求**宿主 App** 实现 WebView 的两个钩子，而小米浏览器的独立窗口两个都没实现：
+
+- `onShowFileChooser` —— 没有它，`<input type="file">` 点下去只触发 click，系统选择器永远不出现；
+- `onPermissionRequest` —— 没有它，`getUserMedia` 直接拒绝。
+
+这不是页面代码的问题：在独立窗口里，连一个页面上可见的原生 `<input type="file">` 用手直接点也毫无反应。Chrome/Edge 的 PWA 没这个毛病，是小米这个外壳的缺陷。
+
+`android/` 下是本插件自带的壳，只做一件事：实现上面两个钩子。回形针会给出 **拍照 / 相册 / 文件** 三个来源，跟手机上别处一致。
+
+**它不打包前端**——页面照样从宿主加载，所以改 `public/` 后刷新前端页面即生效（设置 → 刷新前端页面；debug 包可用 `chrome://inspect`）。
+
+```sh
+cd android
+./gradlew :app:assembleDebug          # 默认指向 https://dev.mac.followjack.cn/mp/
+# 或指定你自己的地址
+./gradlew :app:assembleDebug -PdshUrl=https://dsh.example.com/mp/
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+装完就不必再用浏览器的桌面图标了。下拉是「看更早的消息」，刷新在设置里；要换宿主地址：
+
+```sh
+adb shell am start -n com.jackai.dshmobile/.MainActivity -e url https://your-host/mp/
+```
+
+小米的 `USB 安装` 若拦着 `adb install`，在 设置 → 更多设置 → 开发者选项 里打开，并留意弹出的「USB 安装提示」。
+
 ## 安全
 
 配对成功的手机接近这台宿主上的 DSH：列目录、建工作区、读写会话、跑斜杠命令、上传文件、看账户额度。把它当成第二块屏幕，而不是「只能发一句聊天」。

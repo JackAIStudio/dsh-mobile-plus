@@ -22,6 +22,9 @@ export async function boot() {
   runtime.bootEntered = false
   state.view = 'boot'
   state.bootMessage = ''
+  // If an earlier render failed, boot must still be able to take the screen
+  // back instead of staying on the error page.
+  state.error = ''
   render()
   try {
     let check = await checkPairStatus()
@@ -121,16 +124,25 @@ export function onForeground() {
 }
 
 if (typeof window !== 'undefined') {
-  applyTheme()
-  pinViewport()
-  installOverscrollLock()
-  installKeyboardFitBar()
-  installKeyboardHideWatch()
-  installChatGestureWatch()
-  installKeyboardGapStrip()
-  installAudioUnlockOnGesture()
-  registerPwa()
-  setupPinsSync()
+  // Each of these only decorates the shell. A throw here used to abort the
+  // module before render()/boot(), leaving #root empty with no explanation.
+  const optional = (install, label) => {
+    try {
+      install()
+    } catch (err) {
+      console.error(`[boot] ${label} failed`, err)
+    }
+  }
+  optional(applyTheme, 'theme')
+  optional(pinViewport, 'viewport')
+  optional(installOverscrollLock, 'overscroll')
+  optional(installKeyboardFitBar, 'keyboard fit bar')
+  optional(installKeyboardHideWatch, 'keyboard hide watch')
+  optional(installChatGestureWatch, 'chat gesture')
+  optional(installKeyboardGapStrip, 'keyboard gap strip')
+  optional(installAudioUnlockOnGesture, 'audio unlock')
+  optional(registerPwa, 'pwa')
+  optional(setupPinsSync, 'pins')
 
   window.addEventListener('popstate', () => {
     if (runtime.ignoringPop) return
@@ -171,6 +183,12 @@ if (typeof window !== 'undefined') {
     }, 0)
   }, true)
 
-  render()
+  try {
+    render()
+  } catch (err) {
+    // Last line of defence: render() normally contains its own errors, but a
+    // broken import-time state must still leave the static fallback usable.
+    console.error('[boot] initial render failed', err)
+  }
   void boot()
 }

@@ -8,6 +8,7 @@ import { pickFromFiles } from './upload.js'
 import { renderSlashMenu } from './slash.js'
 import { contextUsage } from './context-usage.js'
 import { render } from '../ui/views/render.js'
+import { saveDraft, clearDraft, queueDraftSave } from './draft-store.js'
 
 export function autosizeInput(node) {
     if (!node || runtime.imeComposing) return
@@ -36,6 +37,10 @@ export function setDraft(next) {
     state.draft = next == null ? '' : String(next)
     syncComposerDraft(runtime.composerNode, state.draft, true)
     autosizeInput(runtime.composerNode)
+    // Sending and switching both land here: keep the stored copy in step so a
+    // reload can never resurrect a prompt that was already sent.
+    if (state.draft) saveDraft()
+    else clearDraft()
   }
 
 export function onComposerInput(ev) {
@@ -43,6 +48,7 @@ export function onComposerInput(ev) {
     if (ev.isComposing || ev.inputType === 'insertCompositionText') runtime.imeComposing = true
     const prev = state.draft
     state.draft = node.value
+    queueDraftSave()
     if (imeLocked(ev)) return
     autosizeInput(node)
     if (state.draft.startsWith('/') || prev.startsWith('/')) render()
